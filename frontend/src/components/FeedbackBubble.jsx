@@ -9,6 +9,7 @@ import moreHorizIcon from '../assets/images/Icons=More_Horizontal.svg';
 import loadIcon from '../assets/images/Icons=Load.svg';
 import Markdown from 'markdown-to-jsx';
 import { chatWithOpenAI } from '../services/openai';
+import { chatWithAgent } from '../services/agent';
 import { getAllUploadedFiles } from '../context/CsvContext';
 
 const SUGGESTED_QUESTIONS = [];
@@ -77,12 +78,25 @@ export default function FeedbackBubble({
     setLoading(true);
 
     try {
-      const files = getAllUploadedFiles();
-      const answerText = await chatWithOpenAI({
-        userMessage: trimmed,
-        files,
-        history: chatHistory,
-      });
+      let answerText;
+      try {
+        // Preferred path: backend agent with tool access to MongoDB sources
+        // and VIA GTFS data.
+        answerText = await chatWithAgent({
+          userMessage: trimmed,
+          history: chatHistory,
+        });
+      } catch (agentErr) {
+        // Backend unreachable (network error) — fall back to calling OpenAI
+        // directly with the locally stored CSVs as inline context.
+        if (!(agentErr instanceof TypeError)) throw agentErr;
+        const files = getAllUploadedFiles();
+        answerText = await chatWithOpenAI({
+          userMessage: trimmed,
+          files,
+          history: chatHistory,
+        });
+      }
       setChatHistory(prev => [...prev, { from: 'bot', text: answerText }]);
       if (setLastBotResponse) setLastBotResponse(answerText);
     } catch (err) {

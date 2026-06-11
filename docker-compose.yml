@@ -1,0 +1,56 @@
+# VIA MVP - full stack
+#
+# Usage:
+#   docker compose up --build
+#
+#   frontend  -> http://localhost:3000
+#   backend   -> http://localhost:5000  (health check at /health)
+#   mongodb   -> localhost:27017 (bound to localhost only)
+#
+# Override Mongo credentials by creating a .env file (see .env.example).
+
+services:
+
+  # mongodb: database
+  #
+  mongodb:
+    image: mongo:8
+    container_name: via_mongo
+    ports:
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_INITDB_ROOT_USERNAME:-via}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD:-via_dev_password}
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # backend: express api
+  #
+  backend:
+    build: ./backend
+    container_name: via_backend
+    ports:
+      - "127.0.0.1:5000:5000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      - MONGO_URI=mongodb://${MONGO_INITDB_ROOT_USERNAME:-via}:${MONGO_INITDB_ROOT_PASSWORD:-via_dev_password}@mongodb:27017/viadata?authSource=admin
+
+  # frontend: react app served as a static build by nginx
+  #
+  frontend:
+    build: ./frontend
+    container_name: via_frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  mongo_data:
