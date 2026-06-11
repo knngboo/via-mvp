@@ -25,3 +25,4 @@ secrets.env
 pull.command
 push.command
 build.command
+github-login.command
