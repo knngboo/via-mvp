@@ -320,7 +320,7 @@ export default function FeedbackBubble({
                   <img src={loadIcon} alt="" className="loading-state-icon" />
                   <span>Working</span>
                 </div>
-                <div className="loading-state-line2">Asking OpenAI</div>
+                <div className="loading-state-line2">Buffi is Buffering</div>
               </div>
             </div>
           </div>
