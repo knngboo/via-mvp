@@ -4,6 +4,7 @@ import ChatPage from './pages/ChatPage';
 import UploadPage from './hub/components/UploadPage';
 import CSVEditor from './hub/components/CSVEditor';
 import SuccessPage from './hub/components/SuccessPage';
+import PluginDashboardPage from './components/PluginDashboardPage';
 import ProtectedRoute from './hub/components/ProtectedRoute';
 
 function App() {
@@ -23,6 +24,14 @@ function App() {
         element={
           <ProtectedRoute>
             <UploadPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dashboard"
+        element={
+          <ProtectedRoute>
+            <PluginDashboardPage />
           </ProtectedRoute>
         }
       />

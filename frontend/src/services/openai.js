@@ -107,3 +107,84 @@ export async function chatWithOpenAI({ userMessage, files = [], history = [] }) 
   const text = data?.choices?.[0]?.message?.content;
   return text || '(OpenAI returned an empty response.)';
 }
+
+// Streaming variant: invokes onToken(partialFullText, deltaChunk) as tokens
+// arrive (like ChatGPT typing out the answer), and returns the final text.
+export async function streamChatWithOpenAI({ userMessage, files = [], history = [], onToken, signal }) {
+  const apiKey = getStoredApiKey();
+  if (!apiKey) {
+    throw new Error('No API key set. Add your OpenAI API key in Settings.');
+  }
+  const res = await fetch(OPENAI_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: getStoredModel(),
+      messages: buildMessages(userMessage, files, history),
+      stream: true,
+    }),
+    signal,
+  });
+  if (!res.ok) {
+    let detail = '';
+    try {
+      const errBody = await res.json();
+      detail = errBody?.error?.message || '';
+    } catch {}
+    throw new Error(`OpenAI ${res.status}: ${detail.slice(0, 200) || 'request failed'}`);
+  }
+  if (!res.body) {
+    // No streaming support in this environment — fall back to whole-response.
+    const data = await res.json();
+    const text = data?.choices?.[0]?.message?.content || '';
+    if (text && onToken) onToken(text, text);
+    return text || '(OpenAI returned an empty response.)';
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let full = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      // Server-sent events are separated by double newlines.
+      const events = buffer.split('\n\n');
+      buffer = events.pop() || '';
+
+      for (const event of events) {
+        for (const line of event.split('\n')) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith('data:')) continue;
+          const payload = trimmed.slice(5).trim();
+          if (payload === '[DONE]') continue;
+          try {
+            const json = JSON.parse(payload);
+            const delta = json?.choices?.[0]?.delta?.content;
+            if (delta) {
+              full += delta;
+              if (onToken) onToken(full, delta);
+            }
+          } catch {
+            // Ignore partial/non-JSON keep-alive lines.
+          }
+        }
+      }
+    }
+  } catch (err) {
+    // User stopped the stream early — keep whatever already arrived.
+    if (err?.name === 'AbortError') {
+      return full;
+    }
+    throw err;
+  }
+
+  return full || '(OpenAI returned an empty response.)';
+}
