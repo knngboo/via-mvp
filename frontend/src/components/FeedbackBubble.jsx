@@ -8,7 +8,7 @@ import thumbsDownIcon from '../assets/images/Icons=Thumbs_down.svg';
 import moreHorizIcon from '../assets/images/Icons=More_Horizontal.svg';
 import loadIcon from '../assets/images/Icons=Load.svg';
 import Markdown from 'markdown-to-jsx';
-import { chatWithOpenAI } from '../services/openai';
+import { streamChatWithOpenAI } from '../services/openai';
 import { getAllUploadedFiles } from '../context/CsvContext';
 
 const SUGGESTED_QUESTIONS = [];
@@ -30,6 +30,7 @@ export default function FeedbackBubble({
   const historyRef = useRef(null);
   const textareaRef = useRef(null);
   const initialQuerySent = useRef(false);
+  const abortRef = useRef(null);
 
   useEffect(() => {
     if (openMoreIdx === null) return;
@@ -76,23 +77,57 @@ export default function FeedbackBubble({
     }
     setLoading(true);
 
+    // Index where the bot's (initially empty) message will live, so we can
+    // update it in place as tokens stream in.
+    const botIdx = nextHistory.length;
+    let placeholderAdded = false;
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
       const files = getAllUploadedFiles();
-      const answerText = await chatWithOpenAI({
+      const answerText = await streamChatWithOpenAI({
         userMessage: trimmed,
         files,
         history: chatHistory,
+        signal: controller.signal,
+        onToken: (fullText) => {
+          if (!placeholderAdded) {
+            // First token: replace the "Working…" loader with a live bubble.
+            placeholderAdded = true;
+            setLoading(false);
+          }
+          setChatHistory(prev => {
+            const next = [...prev];
+            next[botIdx] = { from: 'bot', text: fullText };
+            return next;
+          });
+        },
       });
-      setChatHistory(prev => [...prev, { from: 'bot', text: answerText }]);
+      // Ensure final text is committed even if no tokens streamed.
+      setChatHistory(prev => {
+        const next = [...prev];
+        next[botIdx] = { from: 'bot', text: answerText };
+        return next;
+      });
       if (setLastBotResponse) setLastBotResponse(answerText);
     } catch (err) {
-      console.error('Chat error:', err);
-      setChatHistory(prev => [
-        ...prev,
-        { from: 'bot', text: `Error: ${err.message || 'Could not reach OpenAI'}` },
-      ]);
+      // Aborted before any text arrived — silently stop, no error bubble.
+      if (err?.name !== 'AbortError') {
+        console.error('Chat error:', err);
+        setChatHistory(prev => [
+          ...prev,
+          { from: 'bot', text: `Error: ${err.message || 'Could not reach OpenAI'}` },
+        ]);
+      }
     }
+    abortRef.current = null;
     setLoading(false);
+  };
+
+  const handleStop = () => {
+    if (abortRef.current) abortRef.current.abort();
   };
 
   const handleSubmit = (e) => {
@@ -174,6 +209,7 @@ export default function FeedbackBubble({
           message={message}
           setMessage={setMessage}
           onSubmit={handleSubmit}
+          onStop={handleStop}
           loading={loading}
           textareaRef={textareaRef}
         />
@@ -272,6 +308,7 @@ export default function FeedbackBubble({
         message={message}
         setMessage={setMessage}
         onSubmit={handleSubmit}
+        onStop={handleStop}
         loading={loading}
         textareaRef={textareaRef}
       />
@@ -279,7 +316,7 @@ export default function FeedbackBubble({
   );
 }
 
-function ChatInput({ message, setMessage, onSubmit, loading, textareaRef }) {
+function ChatInput({ message, setMessage, onSubmit, onStop, loading, textareaRef }) {
   const fileRef = useRef(null);
   const [attachedFile, setAttachedFile] = useState(null);
 
@@ -332,14 +369,25 @@ function ChatInput({ message, setMessage, onSubmit, loading, textareaRef }) {
           <button type="button" className="at-btn" tabIndex={-1} onClick={() => fileRef.current?.click()} title="Attach file">
             <img src={attachIcon} alt="Attach" className="send-icon" />
           </button>
-          <button
-            type="button"
-            className="send-btn"
-            disabled={loading || !message.trim()}
-            onClick={onSubmit}
-          >
-            <img src={arrowUpIcon} alt="Send" className="send-icon" />
-          </button>
+          {loading ? (
+            <button
+              type="button"
+              className="send-btn send-btn--stop"
+              onClick={onStop}
+              title="Stop generating"
+            >
+              <span className="stop-icon" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="send-btn"
+              disabled={!message.trim()}
+              onClick={onSubmit}
+            >
+              <img src={arrowUpIcon} alt="Send" className="send-icon" />
+            </button>
+          )}
         </div>
       </div>
     </div>

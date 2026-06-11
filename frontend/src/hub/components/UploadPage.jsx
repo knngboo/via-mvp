@@ -4,10 +4,8 @@ import '../styles/SubmissionsPage.css';
 import { useCsv } from '../../context/CsvContext';
 import AppLayout from './AppLayout';
 import SubmissionContext from './SubmissionContext';
-import ResolveView from './ResolveView';
 import { parseCsvFile } from '../../services/csvParser';
 
-const BUFFI_DESCRIPTION = 'Files in this dataset cover the distribution of residential, commercial, and industrial land use across San Antonio, along with data on where housing supply gaps are most severe.';
 const FOLDERS = ['Housing', 'Safety', 'Infrastructure'];
 
 const formatBytes = (bytes) => {
@@ -47,25 +45,17 @@ export default function UploadPage() {
   const [uploadError, setUploadError]         = useState('');
   const [showTos, setShowTos]                 = useState(() => !localStorage.getItem('tos_agreed'));
 
-  const [typeFilter, setTypeFilter]           = useState('all');
   const [folderFilter, setFolderFilter]       = useState('all');
   const [sortFilter, setSortFilter]           = useState('default');
   const [batchSortState, setBatchSortState]   = useState({});
   const [openDropdown, setOpenDropdown]       = useState(null);
-  const [showSubmitModal, setShowSubmitModal] = useState(false);
 
   const [contextOpen, setContextOpen]         = useState(false);
   const [pendingUpload, setPendingUpload]     = useState(null); // { fileName, fileSize }
-  const [resolveFile, setResolveFile]         = useState(null);
-  const [allResolved, setAllResolved]         = useState(false);
-  const [submitDone, setSubmitDone]           = useState(false);
 
   const toggleDropdown = (name) => setOpenDropdown(prev => prev === name ? null : name);
 
-  const allFiles = batches.flatMap(b => b.files).map(f => ({ ...f, hasError: f.status === 'Error' }));
-  const errorCount = allFiles.filter(f => f.hasError).length;
-  const readyCount = allFiles.filter(f => !f.hasError).length;
-  const hasFiles   = allFiles.length > 0;
+  const hasFiles = batches.some(b => b.files.length > 0);
 
   const handleFile = async (file) => {
     const isCsvByType = file && file.type === 'text/csv';
@@ -141,13 +131,6 @@ export default function UploadPage() {
     setShowTos(false);
   };
 
-  const resolveOne = (id) => {
-    setBatches(prev => prev.map(b => ({
-      ...b,
-      files: b.files.map(f => f.id === id ? { ...f, status: 'Ready' } : f),
-    })));
-  };
-
   const parseSize = (s) => {
     if (!s || s === 'N/A') return 0;
     const num = parseFloat(s);
@@ -171,7 +154,6 @@ export default function UploadPage() {
 
   const getFilteredFiles = (files, batchId) => {
     let result = [...files];
-    if (typeFilter   !== 'all') result = result.filter(f => f.status.toLowerCase() === typeFilter);
     if (folderFilter !== 'all') result = result.filter(f => f.folder === folderFilter);
     const { col: sortCol, dir: sortDir } = batchSortState[batchId] || { col: null, dir: 'asc' };
     if (sortCol) {
@@ -301,20 +283,6 @@ export default function UploadPage() {
         {/* ── Filter Pills ── */}
         <div className="sources-filters" onClick={e => e.stopPropagation()}>
           <div className="filter-pill-wrap">
-            <button className={`filter-pill${typeFilter !== 'all' ? ' filter-active' : ''}`} onClick={() => toggleDropdown('type')}>
-              {typeFilter === 'all' ? 'Type' : typeFilter === 'error' ? 'Type: Error' : 'Type: Ready'}
-              <ChevronDown />
-            </button>
-            {openDropdown === 'type' && (
-              <div className="filter-dropdown">
-                <button className={`filter-dropdown-item${typeFilter === 'all'   ? ' selected' : ''}`} onClick={() => { setTypeFilter('all');   setOpenDropdown(null); }}>All Types</button>
-                <button className={`filter-dropdown-item${typeFilter === 'error' ? ' selected' : ''}`} onClick={() => { setTypeFilter('error'); setOpenDropdown(null); }}>Error</button>
-                <button className={`filter-dropdown-item${typeFilter === 'ready' ? ' selected' : ''}`} onClick={() => { setTypeFilter('ready'); setOpenDropdown(null); }}>Ready</button>
-              </div>
-            )}
-          </div>
-
-          <div className="filter-pill-wrap">
             <button className={`filter-pill${folderFilter !== 'all' ? ' filter-active' : ''}`} onClick={() => toggleDropdown('people')}>
               {folderFilter === 'all' ? 'Folder' : folderFilter}
               <ChevronDown />
@@ -344,41 +312,12 @@ export default function UploadPage() {
           </div>
         </div>
 
-        {/* ── Buffi AI Banner ── */}
-        {hasFiles && (
-          <div className="buffi-banner">
-            <div className="buffi-banner-body">
-              <span className="buffi-banner-label">Buffi AI</span>
-              <p className="buffi-banner-desc">{BUFFI_DESCRIPTION}</p>
-              {errorCount > 0 ? (
-                <>
-                  <p className="buffi-banner-warning"><strong>{errorCount} files need your attention</strong></p>
-                  <p className="buffi-banner-sub">Issues found across {errorCount} files — resolve them before this dataset can be finalized.</p>
-                </>
-              ) : (
-                <p className="buffi-banner-warning"><strong>All files are ready for submission</strong></p>
-              )}
-            </div>
-            <div className="buffi-banner-actions">
-              {errorCount > 0 && (
-                <button className="buffi-btn-outline" onClick={() => setResolveFile(allFiles.find(f => f.hasError))}>
-                  Resolve {errorCount} Issues
-                </button>
-              )}
-              <button className="buffi-btn-primary" onClick={() => setShowSubmitModal(true)}>
-                Submit {readyCount} Ready {readyCount === 1 ? 'File' : 'Files'}
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* ── Queue (list view only) ── */}
         {!hasFiles ? (
           <p className="queue-no-results">No files yet. Upload a CSV above to get started.</p>
         ) : (
           batches.map((batch) => {
-            const batchFiles = batch.files.map(f => ({ ...f, hasError: f.status === 'Error' }));
-            const filtered = getFilteredFiles(batchFiles, batch.id);
+            const filtered = getFilteredFiles(batch.files, batch.id);
             const batchSort = batchSortState[batch.id] || { col: null, dir: 'asc' };
             if (filtered.length === 0) return null;
             return (
@@ -415,12 +354,9 @@ export default function UploadPage() {
                   <thead>
                     <tr>
                       {[
-                        { label: 'Name',         col: 'name' },
-                        { label: 'Folder',       col: 'folder' },
-                        { label: 'Status',       col: 'status' },
-                        { label: 'Tier',         col: 'tier' },
-                        { label: 'File Size',    col: 'size' },
-                        { label: 'AI Confidence',col: 'confidence' },
+                        { label: 'Name',      col: 'name' },
+                        { label: 'Folder',    col: 'folder' },
+                        { label: 'File Size', col: 'size' },
                       ].map(({ label, col }) => (
                         <th key={col} onClick={() => handleColSort(batch.id, col)}>
                           {label}
@@ -441,7 +377,7 @@ export default function UploadPage() {
                   </thead>
                   <tbody>
                     {filtered.map((file) => (
-                      <tr key={file.id} className="queue-row" onClick={() => setResolveFile(file)}>
+                      <tr key={file.id} className="queue-row">
                         <td>
                           <div className="queue-col-name">
                             <FileIcon />
@@ -449,10 +385,7 @@ export default function UploadPage() {
                           </div>
                         </td>
                         <td className="queue-col-folder">{file.folder}</td>
-                        <td><span className={`queue-status-badge ${file.hasError ? 'error' : 'ready'}`}>{file.hasError ? 'Error' : 'Ready'}</span></td>
-                        <td className="queue-col-tier">{file.tier}</td>
                         <td className="queue-col-size">{file.size}</td>
-                        <td><span className={`queue-confidence ${file.confidence === 'Low' ? 'low' : 'high'}`}>{file.confidence}</span></td>
                       </tr>
                     ))}
                   </tbody>
@@ -463,50 +396,6 @@ export default function UploadPage() {
         )}
 
       </div>
-
-      {/* ── Resolve View ── */}
-      {resolveFile && (
-        <ResolveView
-          file={resolveFile}
-          onClose={() => setResolveFile(null)}
-          onSubmit={(updatedRows) => {
-            const stillHasErrors = updatedRows.some(r => r.hasError);
-            if (!stillHasErrors) resolveOne(resolveFile.id);
-            setResolveFile(null);
-            if (!stillHasErrors) setSubmitDone(true);
-          }}
-        />
-      )}
-
-      {/* ── All Resolved / Submit Done confirmation ── */}
-      {(allResolved || submitDone) && (
-        <div className="resolve-overlay" onClick={() => { setAllResolved(false); setSubmitDone(false); }}>
-          <div className="resolve-modal" onClick={e => e.stopPropagation()}>
-            <h2 className="resolve-modal-title">{allResolved ? 'All Issues Resolved' : 'File Resolved'}</h2>
-            <p style={{ fontFamily: '"Saans TRIAL", sans-serif', fontSize: 14, color: 'var(--Grey-700)', margin: 0, lineHeight: 1.6 }}>
-              {allResolved
-                ? 'All files have been marked as resolved and are ready for submission.'
-                : 'The file changes have been saved and the issue has been resolved.'}
-            </p>
-            <div className="resolve-modal-actions">
-              <button className="resolve-confirm-btn" onClick={() => { setAllResolved(false); setSubmitDone(false); }}>Done</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Submit Confirmation Modal ── */}
-      {showSubmitModal && (
-        <div className="submit-modal-overlay" onClick={() => setShowSubmitModal(false)}>
-          <div className="submit-modal" onClick={e => e.stopPropagation()}>
-            <h2 className="submit-modal-title">Files Submitted</h2>
-            <p className="submit-modal-body">
-              {readyCount} {readyCount === 1 ? 'file has' : 'files have'} been successfully submitted to BFI for processing. You&rsquo;ll be notified once they&rsquo;ve been reviewed.
-            </p>
-            <button className="submit-modal-btn" onClick={() => setShowSubmitModal(false)}>Done</button>
-          </div>
-        </div>
-      )}
 
       {/* ── Submission Context Modal (after upload) ── */}
       <SubmissionContext
@@ -522,11 +411,7 @@ export default function UploadPage() {
                 id: Date.now() + 1,
                 name: pendingUpload.fileName,
                 folder,
-                status: 'Ready',
-                tier: 'Tier 2: Internal Operational',
                 size: pendingUpload.fileSize ? formatBytes(pendingUpload.fileSize) : 'N/A',
-                confidence: 'High',
-                issue: '',
                 csvData: pendingCsvData && pendingCsvData.length > 0 ? pendingCsvData : (csvData && csvData.length > 0 ? csvData : null),
               }],
             };

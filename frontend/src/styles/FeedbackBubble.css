@@ -938,3 +938,19 @@ button.map-tag {
 .send-btn .send-icon {
   filter: brightness(0) invert(1);
 }
+
+.send-btn--stop {
+  background: #000B84;
+}
+
+.send-btn--stop:hover {
+  background: var(--Primary-950);
+}
+
+.stop-icon {
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+  background: #fff;
+  display: block;
+}
