@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import mongoose from 'mongoose';
 import sourcesRouter from './sources.js';
 import agentRouter from './agent.js';
+import { getStats, getTripsPerRoute, getDeparturesByHour } from './stats.js';
 
 // load environment variables
 //
@@ -130,6 +131,37 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
             }
         ]).toArray();
         res.json(departures);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// dashboard stats: headline counts + feed info
+// query logic lives in stats.js, shared with the buffi agent tools
+//
+app.get('/api/stats', async (req, res) => {
+    try {
+        res.json(await getStats());
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// busiest routes by number of scheduled trips
+//
+app.get('/api/stats/trips-per-route', async (req, res) => {
+    try {
+        res.json(await getTripsPerRoute(parseInt(req.query.limit, 10) || 10));
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// system-wide departures grouped by hour of day
+//
+app.get('/api/stats/departures-by-hour', async (req, res) => {
+    try {
+        res.json(await getDeparturesByHour());
     } catch (error) {
         res.status(500).json({ message: error.message });
     }

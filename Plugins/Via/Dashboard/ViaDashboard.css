@@ -1,3 +1,4 @@
+/* Loading / error states (centered, same as the old placeholder) */
 .via-dashboard {
   display: flex;
   align-items: center;
@@ -12,4 +13,98 @@
   font-weight: 600;
   color: var(--Grey-500, #888);
   letter-spacing: 0.02em;
+}
+
+/* Data view */
+.via-dash {
+  width: 100%;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  font-family: "Saans TRIAL", sans-serif;
+  overflow: auto;
+}
+
+.via-dash-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.via-dash-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--Grey-900, #1a1a1c);
+}
+
+.via-dash-feed {
+  font-size: 12px;
+  color: var(--Grey-500, #888);
+}
+
+.via-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.via-kpi-card {
+  background: #fff;
+  border: 1px solid var(--Grey-200, #e5e5e7);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.via-kpi-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--Grey-900, #1a1a1c);
+}
+
+.via-kpi-label {
+  font-size: 12px;
+  color: var(--Grey-500, #888);
+}
+
+.via-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+.via-chart-card {
+  background: #fff;
+  border: 1px solid var(--Grey-200, #e5e5e7);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.via-chart-title {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--Grey-700, #4a4a4e);
+}
+
+.via-tooltip {
+  background: #fff;
+  border: 1px solid var(--Grey-200, #e5e5e7);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--Grey-700, #4a4a4e);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.via-tooltip-title {
+  font-weight: 600;
+  margin-bottom: 2px;
+  color: var(--Grey-900, #1a1a1c);
 }

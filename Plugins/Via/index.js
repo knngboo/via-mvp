@@ -8,7 +8,7 @@ import { parse } from './ParseLogic';
 const ViaPlugin = {
   id: 'via',
   name: 'Via',
-  description: 'Placeholder Via plugin — dashboard only, no parse logic yet.',
+  description: 'VIA transit dashboard backed by the MongoDB GTFS data (routes, stops, scheduled service).',
   Dashboard: ViaDashboard,
   // parse(files) → visualization-ready data. Null until ParseLogic is built.
   parse,

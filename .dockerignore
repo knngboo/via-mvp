@@ -1,0 +1,14 @@
+# Applies to builds whose context is the repo root (the frontend image).
+# Keep the context small: only frontend/ and Plugins/ are needed.
+**/node_modules
+**/build
+.git
+backend
+via-mvp-main
+via-mvp-main.zip
+Figma
+FigmaDesigns
+newFigmaDesigns
+memory
+*.md
+.env

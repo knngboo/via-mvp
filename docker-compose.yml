@@ -41,11 +41,17 @@ services:
         condition: service_healthy
     environment:
       - MONGO_URI=mongodb://${MONGO_INITDB_ROOT_USERNAME:-via}:${MONGO_INITDB_ROOT_PASSWORD:-via_dev_password}@mongodb:27017/viadata?authSource=admin
+      # optional server-side fallback for the Buffi agent; users normally
+      # supply their own key from Settings via the x-openai-key header
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
 
   # frontend: react app served as a static build by nginx
+  # context is the repo root so the build can include the Plugins folder
   #
   frontend:
-    build: ./frontend
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
     container_name: via_frontend
     ports:
       - "3000:80"
