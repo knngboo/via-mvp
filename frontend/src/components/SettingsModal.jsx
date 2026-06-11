@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { OPENAI_MODELS, getStoredModel, setStoredModel } from '../services/openai';
+import { PLUGINS, getActivePluginId, setActivePluginId } from 'Plugins';
 
 const STORAGE_KEY = 'buffi_api_key';
 
@@ -19,11 +20,18 @@ export default function SettingsModal({ onClose }) {
   const [reveal, setReveal] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
   const [model, setModel] = useState(getStoredModel);
+  const [activePlugin, setActivePlugin] = useState(getActivePluginId);
 
   const handleModelChange = (e) => {
     const value = e.target.value;
     setModel(value);
     setStoredModel(value);
+  };
+
+  const handlePluginChange = (e) => {
+    const value = e.target.value;
+    setActivePlugin(value);
+    setActivePluginId(value);
   };
 
   const handleSave = () => {
@@ -115,6 +123,24 @@ export default function SettingsModal({ onClose }) {
             >
               {OPENAI_MODELS.map(({ id, label }) => (
                 <option key={id} value={id}>{label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="settings-section">
+            <label className="settings-label" htmlFor="settings-plugin">Active plugin</label>
+            <p className="settings-help">
+              Select an applicable plugin. When active, its dashboard appears in the sidebar.
+            </p>
+            <select
+              id="settings-plugin"
+              className="settings-select"
+              value={activePlugin}
+              onChange={handlePluginChange}
+            >
+              <option value="">None</option>
+              {PLUGINS.map(({ id, name }) => (
+                <option key={id} value={id}>{name}</option>
               ))}
             </select>
           </div>

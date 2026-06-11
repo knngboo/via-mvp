@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { getActivePlugin } from 'Plugins';
 import SettingsModal from './SettingsModal';
 import bfiIconDark from '../assets/images/BFI_LogoIcon_Dark.svg';
 import sidebarCloseIcon from '../assets/images/Sidebar_close.svg';
@@ -62,6 +63,7 @@ export default function AppSidebar() {
   const [renamingId, setRenamingId] = useState(null);
   const [renameDraft, setRenameDraft] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [activePlugin, setActivePlugin] = useState(getActivePlugin);
   const menuRef = useRef(null);
   const navigate = useNavigate();
   const { pathname } = useLocation();
@@ -83,6 +85,17 @@ export default function AppSidebar() {
       window.removeEventListener('storage', refresh);
       window.removeEventListener('focus', refresh);
       clearInterval(interval);
+    };
+  }, []);
+
+  // Keep the active-plugin nav item in sync when it changes in Settings.
+  useEffect(() => {
+    const refresh = () => setActivePlugin(getActivePlugin());
+    window.addEventListener('buffi:plugin-change', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      window.removeEventListener('buffi:plugin-change', refresh);
+      window.removeEventListener('focus', refresh);
     };
   }, []);
 
@@ -111,8 +124,9 @@ export default function AppSidebar() {
     setRenamingId(null);
   };
 
-  const isChat    = pathname === '/chat';
-  const isSources = pathname === '/upload';
+  const isChat      = pathname === '/chat';
+  const isSources   = pathname === '/upload';
+  const isDashboard = pathname === '/dashboard';
 
   const activeId = activeConv && activeConv.id;
   const hasActive = activeConv && Array.isArray(activeConv.chatHistory) && activeConv.chatHistory.length > 0;
@@ -230,6 +244,21 @@ export default function AppSidebar() {
           <img src={iconSources} alt="" className="strip-icon" />
           {expanded && <span className="strip-label">Sources</span>}
         </button>
+        {activePlugin && (
+          <button
+            className={`icon-strip-btn${isDashboard ? ' icon-strip-btn--active' : ''}`}
+            title={`${activePlugin.name} Dashboard`}
+            onClick={() => navigate('/dashboard')}
+          >
+            <svg className="strip-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="7" height="9" />
+              <rect x="14" y="3" width="7" height="5" />
+              <rect x="14" y="12" width="7" height="9" />
+              <rect x="3" y="16" width="7" height="5" />
+            </svg>
+            {expanded && <span className="strip-label">{activePlugin.name} Dashboard</span>}
+          </button>
+        )}
         <button
           className={`icon-strip-btn${favoritesOnly ? ' icon-strip-btn--active' : ''}`}
           title="Favorites"

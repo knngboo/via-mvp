@@ -9,6 +9,7 @@ Buffi is a browser-based data assistant. Upload CSV files and chat with **Buffi*
 - **Streaming responses** — the assistant types out its answer token-by-token as it arrives, like ChatGPT.
 - **Stop button** — halt a response mid-stream; whatever text already arrived is kept.
 - **Maps & charts** — built-in Leaflet maps and chart components for visualizing data.
+- **Plugins** — drop-in plugin folders that add a data dashboard. Activate one in Settings and its dashboard appears in the sidebar. See [Plugin system](#plugin-system).
 
 ## Getting started
 
@@ -36,11 +37,45 @@ Run from the `frontend/` directory:
 - CSV parsing, chat history, and the API key are all handled in the browser.
 - The model is configurable in Settings (defaults to `gpt-5-mini`).
 
+## Plugin system
+
+Buffi supports **drop-in, per-client plugins**. Each plugin adds a dashboard, and
+everything that plugin owns — its visualization UI *and* its data-parsing logic —
+lives entirely inside its own folder under `frontend/src/Plugins/`. Adding a new
+client is just adding a folder; no other file in the app changes.
+
+```
+frontend/src/Plugins/
+  index.js                 registry — auto-discovers every plugin folder
+  Via/                     one folder per client (Via is a placeholder)
+    index.js               manifest: { id, name, Dashboard, parse }
+    ParseLogic/            this client's data parsing  → parse(files)
+    Dashboard/             this client's visualization UI
+```
+
+**How it works**
+
+1. Plugins are **auto-discovered** — any `Plugins/<Client>/index.js` that exports a
+   manifest is picked up automatically (no registration step).
+2. The manifest is the whole contract: `{ id, name, Dashboard, parse }`.
+3. Pick a plugin in **Settings → Active plugin**. The id is saved to `localStorage`
+   and a `buffi:plugin-change` event fires.
+4. When active, a **Dashboard** item appears in the sidebar and routes to
+   `/dashboard`.
+5. The generic host ([`PluginDashboardPage.jsx`](frontend/src/components/PluginDashboardPage.jsx))
+   runs the plugin's `parse(files)` over the uploaded CSVs and renders its
+   `Dashboard` with `{ data, files }`. No client-specific code lives in the host.
+
+**Adding a client:** copy `Plugins/Via/`, rename it, give it a unique `id`/`name`,
+implement `parse(files)` in `ParseLogic/`, and build the UI in `Dashboard/`. See
+[`Plugins/README.md`](frontend/src/Plugins/README.md) for the full guide.
+
 ## Project structure
 
 ```
 frontend/src/
-  components/    UI components (chat, etc.)
+  components/    UI components (chat, plugin dashboard host, etc.)
+  Plugins/       drop-in per-client plugins (see Plugin system above)
   services/      OpenAI calls (openai.js) and CSV parsing
   context/       shared state (uploaded files, etc.)
   pages/         routed pages
