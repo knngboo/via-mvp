@@ -60,13 +60,82 @@ function fileToContextBlock(file) {
   return block;
 }
 
-function buildMessages(userMessage, files, history) {
+// Sentinel value the UI uses for the always-available free-text "Other…" choice.
+export const OTHER_VALUE = '__other__';
+
+// Tells the model how to ask the user clarifying questions as a structured,
+// Claude-Code-style multiple-choice block instead of plain prose. The UI
+// renders this block as an interactive card and sends every answer back at once.
+const ASK_INSTRUCTIONS = `
+DEFAULT TO ANSWERING. Trust your own judgment and make reasonable assumptions instead of interrogating the user. Most requests do NOT need a follow-up — only ask when there is genuine ambiguity that you truly cannot resolve yourself and that would change the result (e.g. you literally cannot tell what data or deliverable they mean). If you can make a sensible choice on your own, do that and briefly note the assumption rather than asking.
+
+When clarification IS genuinely needed, reply with ONLY a fenced code block tagged \`ask\` containing JSON, no text before or after it:
+
+\`\`\`ask
+{"questions":[{"header":"Theme","question":"What should the poem be about?","options":[{"label":"Love"},{"label":"Nature"},{"label":"Loss"}]}]}
+\`\`\`
+
+Rules:
+- Ask everything you need in this ONE group. You may include more than one question, but keep it tight — only questions you genuinely cannot answer yourself.
+- Keep it SIMPLE: 2–3 options per question, with short "label"s. A "description" is OPTIONAL — only add one when the label alone is unclear.
+- Each question needs a short "header" (≤ ~16 chars) and the "question" text.
+- Set "multiSelect": true only when more than one option can genuinely apply at once.
+- The user always also gets a free-text "Other…" choice, so never add one yourself.
+- Ask ONLY ONE round. After the user answers, DELIVER the result and resolve any smaller details yourself — never ask a second batch of questions.`;
+
+// Pull a structured \`ask\` block out of an assistant message. Returns
+// { intro, questions } when a complete, valid block is present, else null.
+// Used by the chat UI to render the interactive follow-up card.
+export function parseAskBlock(text) {
+  if (!text || typeof text !== 'string') return null;
+  const match = text.match(/```ask\s*([\s\S]*?)```/);
+  if (!match) return null;
+  let json;
+  try {
+    json = JSON.parse(match[1].trim());
+  } catch {
+    return null;
+  }
+  const rawQuestions = Array.isArray(json) ? json : json?.questions;
+  if (!Array.isArray(rawQuestions) || rawQuestions.length === 0) return null;
+
+  const questions = rawQuestions.slice(0, 4).map((q) => {
+    const options = (Array.isArray(q?.options) ? q.options : [])
+      .slice(0, 6)
+      .map((o) =>
+        typeof o === 'string'
+          ? { label: o, description: '' }
+          : { label: String(o?.label ?? ''), description: String(o?.description ?? '') },
+      )
+      .filter((o) => o.label);
+    return {
+      header: String(q?.header ?? '').slice(0, 24),
+      question: String(q?.question ?? ''),
+      multiSelect: !!q?.multiSelect,
+      options,
+    };
+  }).filter((q) => q.question && q.options.length > 0);
+
+  if (questions.length === 0) return null;
+
+  const intro = text.slice(0, match.index).trim();
+  return { intro, questions };
+}
+
+// Reminder injected when the user has just answered a follow-up, to hard-stop
+// the model from opening a second round of questions.
+const NO_MORE_FOLLOWUPS =
+  '\nThe user has just answered your follow-up questions. Do NOT ask any more questions — produce the final result now and resolve any remaining details yourself.';
+
+function buildMessages(userMessage, files, history, afterFollowUp) {
   const context = files
     .map(fileToContextBlock)
     .filter(Boolean)
     .join('\n');
   const system = [
     "You are Buffi, a helpful data assistant. Answer the user's question using the CSV files they have uploaded. If the answer requires data not in those files, say so. Use Markdown. Be concise.",
+    ASK_INSTRUCTIONS,
+    afterFollowUp ? NO_MORE_FOLLOWUPS : '',
     context ? `\nUPLOADED FILES:\n${context}` : '\n(No files have been uploaded yet.)',
   ].join('\n');
 
@@ -110,7 +179,7 @@ export async function chatWithOpenAI({ userMessage, files = [], history = [] }) 
 
 // Streaming variant: invokes onToken(partialFullText, deltaChunk) as tokens
 // arrive (like ChatGPT typing out the answer), and returns the final text.
-export async function streamChatWithOpenAI({ userMessage, files = [], history = [], onToken, signal }) {
+export async function streamChatWithOpenAI({ userMessage, files = [], history = [], onToken, signal, afterFollowUp = false }) {
   const apiKey = getStoredApiKey();
   if (!apiKey) {
     throw new Error('No API key set. Add your OpenAI API key in Settings.');
@@ -123,7 +192,7 @@ export async function streamChatWithOpenAI({ userMessage, files = [], history = 
     },
     body: JSON.stringify({
       model: getStoredModel(),
-      messages: buildMessages(userMessage, files, history),
+      messages: buildMessages(userMessage, files, history, afterFollowUp),
       stream: true,
     }),
     signal,

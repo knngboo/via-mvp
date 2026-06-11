@@ -8,8 +8,9 @@ import thumbsDownIcon from '../assets/images/Icons=Thumbs_down.svg';
 import moreHorizIcon from '../assets/images/Icons=More_Horizontal.svg';
 import loadIcon from '../assets/images/Icons=Load.svg';
 import Markdown from 'markdown-to-jsx';
-import { streamChatWithOpenAI } from '../services/openai';
+import { streamChatWithOpenAI, parseAskBlock } from '../services/openai';
 import { getAllUploadedFiles } from '../context/CsvContext';
+import FollowUpQuestions from './FollowUpQuestions';
 
 const SUGGESTED_QUESTIONS = [];
 
@@ -63,7 +64,7 @@ export default function FeedbackBubble({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const sendMessage = async (text) => {
+  const sendMessage = async (text, { afterFollowUp = false } = {}) => {
     const trimmed = text.trim();
     if (!trimmed) return;
 
@@ -92,6 +93,7 @@ export default function FeedbackBubble({
         files,
         history: chatHistory,
         signal: controller.signal,
+        afterFollowUp,
         onToken: (fullText) => {
           if (!placeholderAdded) {
             // First token: replace the "Working…" loader with a live bubble.
@@ -217,10 +219,30 @@ export default function FeedbackBubble({
     );
   }
 
+  // When the latest assistant turn is a complete follow-up block, replace the
+  // message input with a one-question-at-a-time stepper; the history stays put.
+  const lastMsg = chatHistory[chatHistory.length - 1];
+  const activeAsk =
+    !loading && lastMsg && lastMsg.from === 'bot' ? parseAskBlock(lastMsg.text) : null;
+
   return (
     <div className="chat-wrapper">
       <div className="chat-history" ref={historyRef}>
-        {chatHistory.map((msg, idx) => (
+        {chatHistory.map((msg, idx) => {
+          // Hide answered follow-up turns — the user's combined answer below
+          // captures the outcome, and we never show the raw `ask` JSON.
+          if (msg.from === 'bot' && parseAskBlock(msg.text)) return null;
+          // While an `ask` block is still streaming in, show a placeholder.
+          if (msg.from === 'bot' && /```ask/.test(msg.text)) {
+            return (
+              <div key={idx} className="msg-row bot">
+                <div className="bot-block">
+                  <div className="followup-pending">Preparing follow-up questions…</div>
+                </div>
+              </div>
+            );
+          }
+          return (
           <div key={idx} className={`msg-row ${msg.from}`}>
             {msg.from === 'user' ? (
               <div className="user-pill">{msg.text}</div>
@@ -287,7 +309,8 @@ export default function FeedbackBubble({
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
 
         {loading && (
           <div className="msg-row bot">
@@ -304,14 +327,21 @@ export default function FeedbackBubble({
         )}
       </div>
 
-      <ChatInput
-        message={message}
-        setMessage={setMessage}
-        onSubmit={handleSubmit}
-        onStop={handleStop}
-        loading={loading}
-        textareaRef={textareaRef}
-      />
+      {activeAsk ? (
+        <FollowUpQuestions
+          questions={activeAsk.questions}
+          onSubmit={(answerText) => sendMessage(answerText, { afterFollowUp: true })}
+        />
+      ) : (
+        <ChatInput
+          message={message}
+          setMessage={setMessage}
+          onSubmit={handleSubmit}
+          onStop={handleStop}
+          loading={loading}
+          textareaRef={textareaRef}
+        />
+      )}
     </div>
   );
 }
