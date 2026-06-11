@@ -41,17 +41,23 @@ Run from the `frontend/` directory:
 
 Buffi supports **drop-in, per-client plugins**. Each plugin adds a dashboard, and
 everything that plugin owns — its visualization UI *and* its data-parsing logic —
-lives entirely inside its own folder under `frontend/src/Plugins/`. Adding a new
-client is just adding a folder; no other file in the app changes.
+lives entirely inside its own folder in the repo-root `Plugins/` directory
+(outside the app's `frontend/src`). Adding a new client is just adding a folder;
+no other file in the app changes.
 
 ```
-frontend/src/Plugins/
+Plugins/                   (repo root — sibling of frontend/)
   index.js                 registry — auto-discovers every plugin folder
   Via/                     one folder per client (Via is a placeholder)
     index.js               manifest: { id, name, Dashboard, parse }
     ParseLogic/            this client's data parsing  → parse(files)
     Dashboard/             this client's visualization UI
 ```
+
+The app reaches this out-of-`src` folder via [CRACO](https://craco.js.org/)
+(`frontend/craco.config.js`): it relaxes Create React App's src-only import scope
+and exposes the folder under the `Plugins` import alias. This is why the npm
+scripts run through `craco` instead of `react-scripts`.
 
 **How it works**
 
@@ -68,18 +74,20 @@ frontend/src/Plugins/
 
 **Adding a client:** copy `Plugins/Via/`, rename it, give it a unique `id`/`name`,
 implement `parse(files)` in `ParseLogic/`, and build the UI in `Dashboard/`. See
-[`Plugins/README.md`](frontend/src/Plugins/README.md) for the full guide.
+[`Plugins/README.md`](Plugins/README.md) for the full guide.
 
 ## Project structure
 
 ```
-frontend/src/
-  components/    UI components (chat, plugin dashboard host, etc.)
-  Plugins/       drop-in per-client plugins (see Plugin system above)
-  services/      OpenAI calls (openai.js) and CSV parsing
-  context/       shared state (uploaded files, etc.)
-  pages/         routed pages
-  styles/        component CSS
+Plugins/         drop-in per-client plugins (see Plugin system above)
+frontend/
+  craco.config.js  build config that wires in the root Plugins/ folder
+  src/
+    components/    UI components (chat, plugin dashboard host, etc.)
+    services/      OpenAI calls (openai.js) and CSV parsing
+    context/       shared state (uploaded files, etc.)
+    pages/         routed pages
+    styles/        component CSS
 ```
 
 ## Tech stack
