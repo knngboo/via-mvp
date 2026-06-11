@@ -5,6 +5,7 @@ import { useCsv } from '../../context/CsvContext';
 import AppLayout from './AppLayout';
 import SubmissionContext from './SubmissionContext';
 import { parseCsvFile } from '../../services/csvParser';
+import { listSources, uploadSource } from '../../services/sources';
 
 const FOLDERS = ['Housing', 'Safety', 'Infrastructure'];
 
@@ -39,6 +40,16 @@ export default function UploadPage() {
   const dragCounter = useRef(0);
   const { batches, setBatches, csvData, setCsvData, setFileName, setCsvStats } = useCsv();
   const [pendingCsvData, setPendingCsvData] = useState(null);
+  const [pendingFile, setPendingFile] = useState(null);
+  const [dbSources, setDbSources] = useState([]);
+
+  // Load sources persisted in MongoDB; the page still works if the backend
+  // is unreachable, it just shows local batches only.
+  useEffect(() => {
+    listSources()
+      .then(setDbSources)
+      .catch(() => {});
+  }, []);
 
   const [isDragging, setIsDragging]           = useState(false);
   const [isUploading, setIsUploading]         = useState(false);
@@ -55,7 +66,31 @@ export default function UploadPage() {
 
   const toggleDropdown = (name) => setOpenDropdown(prev => prev === name ? null : name);
 
-  const hasFiles = batches.some(b => b.files.length > 0);
+  // Database sources not already present in a local batch get their own
+  // read-only batch so everything stored in Mongo is visible here.
+  const localNames = new Set(batches.flatMap(b => b.files.map(f => f.name)));
+  const dbFiles = dbSources
+    .filter(s => !localNames.has(s.name))
+    .map(s => ({
+      id: `db-${s._id}`,
+      sourceId: s._id,
+      name: s.name,
+      folder: s.folder,
+      status: s.status || 'Ready',
+      tier: s.tier,
+      size: formatBytes(s.size),
+      confidence: s.confidence || 'High',
+      issue: '',
+      csvData: s.sample || [],
+    }));
+  const displayBatches = dbFiles.length > 0
+    ? [...batches, { id: 'db-sources', label: 'Synced from Database', files: dbFiles }]
+    : batches;
+
+  const allFiles = displayBatches.flatMap(b => b.files).map(f => ({ ...f, hasError: f.status === 'Error' }));
+  const errorCount = allFiles.filter(f => f.hasError).length;
+  const readyCount = allFiles.filter(f => !f.hasError).length;
+  const hasFiles   = allFiles.length > 0;
 
   const handleFile = async (file) => {
     const isCsvByType = file && file.type === 'text/csv';
@@ -72,6 +107,7 @@ export default function UploadPage() {
       setCsvData(result.data);
       setCsvStats(result.stats);
       setPendingCsvData(result.data);
+      setPendingFile(file);
       setPendingUpload({ fileName: result.filename, fileSize: file.size });
       setContextOpen(true);
     } catch (error) {
@@ -316,8 +352,9 @@ export default function UploadPage() {
         {!hasFiles ? (
           <p className="queue-no-results">No files yet. Upload a CSV above to get started.</p>
         ) : (
-          batches.map((batch) => {
-            const filtered = getFilteredFiles(batch.files, batch.id);
+          displayBatches.map((batch) => {
+            const batchFiles = batch.files.map(f => ({ ...f, hasError: f.status === 'Error' }));
+            const filtered = getFilteredFiles(batchFiles, batch.id);
             const batchSort = batchSortState[batch.id] || { col: null, dir: 'asc' };
             if (filtered.length === 0) return null;
             return (
@@ -404,22 +441,42 @@ export default function UploadPage() {
         onSubmit={(formData) => {
           if (pendingUpload) {
             const folder = formData.dataDomain || formData.projectName || 'Uncategorized';
+            const tier = 'Tier 2: Internal Operational';
+            const fileId = Date.now() + 1;
             const newBatch = {
               id: Date.now(),
               label: formatBatchDate(),
               files: [{
-                id: Date.now() + 1,
+                id: fileId,
                 name: pendingUpload.fileName,
                 folder,
+                status: 'Ready',
+                tier,
                 size: pendingUpload.fileSize ? formatBytes(pendingUpload.fileSize) : 'N/A',
                 csvData: pendingCsvData && pendingCsvData.length > 0 ? pendingCsvData : (csvData && csvData.length > 0 ? csvData : null),
               }],
             };
             setBatches(prev => [newBatch, ...prev]);
+
+            // Persist to MongoDB so Buffi's agent can query the data.
+            if (pendingFile) {
+              uploadSource(pendingFile, { folder, tier })
+                .then((saved) => {
+                  setDbSources(prev => [saved, ...prev]);
+                  setBatches(prev => prev.map(b => b.id !== newBatch.id ? b : {
+                    ...b,
+                    files: b.files.map(f => f.id === fileId ? { ...f, sourceId: saved._id } : f),
+                  }));
+                })
+                .catch((err) => {
+                  setUploadError(`Saved locally, but database sync failed: ${err.message}`);
+                });
+            }
           }
           setContextOpen(false);
           setPendingUpload(null);
           setPendingCsvData(null);
+          setPendingFile(null);
         }}
         fileName={pendingUpload?.fileName || ''}
       />

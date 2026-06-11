@@ -1,0 +1,90 @@
+route_id,agency_id,route_short_name,route_long_name,route_desc,route_type,route_url,route_color,route_text_color
+10,60011,10,Naco / Broadway Skip,,3,,CB2128,FFFFFF
+100,60011,100,Primo Fredericksburg Road,,3,,CB2128,FFFFFF
+102,60011,102,Primo Military,,3,,CB2128,FFFFFF
+103,60011,103,Primo Zarzamora,,3,,CB2128,FFFFFF
+14,60011,14,Perrin Beitel Skip,,3,,CB2128,FFFFFF
+17,60011,17,IH-35 Express,,3,,2D5DA2,FFFFFF
+2,60011,2,Blanco Frequent,,3,,CB2128,FFFFFF
+20,60011,20,New Braunfels Frequent,,3,,CB2128,FFFFFF
+204,60011,204,San Pedro / McCullough 4-5 Lineup,,3,,609FBF,FFFFFF
+21,60011,21,Kirby / Ventura Frequent,,3,,CB2128,FFFFFF
+214,60011,214,Austin Hwy / Randolph 14-17 Lineup,,3,,609FBF,FFFFFF
+22,60011,22,Hays,,3,,2D5DA2,FFFFFF
+222,60011,222,Hays / E Houston 22-24 Lineup,,3,,609FBF,FFFFFF
+225,60011,225,E Commerce / MLK 25-26 Lineup,,3,,609FBF,FFFFFF
+230,60011,230,Rigsby / Porter 30-28 Lineup,,3,,609FBF,FFFFFF
+232,60011,232,Steves / S St Marys 32-34 Lineup,,3,,609FBF,FFFFFF
+24,60011,24,East Houston Frequent,,3,,CB2128,FFFFFF
+242,60011,242,Roosevelt / S Presa 42-36 Lineup,,3,,609FBF,FFFFFF
+25,60011,25,East Commerce Frequent,,3,,CB2128,FFFFFF
+251,60011,251,Nogalitos / Kirk 51-62 Lineup,,3,,609FBF,FFFFFF
+26,60011,26,Martin Luther King,,3,,2D5DA2,FFFFFF
+268,60011,268,Guadalupe / Ceralvo 68-66 Lineup,,3,,609FBF,FFFFFF
+275,60011,275,Commerce / Laredo 75-67 Lineup,,3,,609FBF,FFFFFF
+276,60011,276,Commerce / Kel-Lac TC 76-64 Lineup,,3,,609FBF,FFFFFF
+28,60011,28,Porter Frequent,,3,,CB2128,FFFFFF
+282,60011,282,Culebra 82 Lineup,,3,,609FBF,FFFFFF
+288,60011,288,Bandera / Evers 88 Lineup,,3,,609FBF,FFFFFF
+289,60011,289,Poplar / Woodlawn 89-90 Lineup,,3,,609FBF,FFFFFF
+3,60011,3,San Pedro Skip,,3,,CB2128,FFFFFF
+30,60011,30,Rigsby,,3,,2D5DA2,FFFFFF
+32,60011,32,Steves,,3,,609FBF,FFFFFF
+34,60011,34,South St Marys Frequent,,3,,CB2128,FFFFFF
+36,60011,36,South Presa,,3,,609FBF,FFFFFF
+4,60011,4,San Pedro Frequent,,3,,CB2128,FFFFFF
+42,60011,42,Roosevelt,,3,,609FBF,FFFFFF
+43,60011,43,South Flores,,3,,2D5DA2,FFFFFF
+44,60011,44,Pleasanton,,3,,2D5DA2,FFFFFF
+46,60011,46,Commercial,,3,,2D5DA2,FFFFFF
+5,60011,5,McCullough,,3,,2D5DA2,FFFFFF
+501,60011,501,UTSA / Leon Valley,,3,,609FBF,FFFFFF
+502,60011,502,Thousand Oaks / Converse,,3,,2D5DA2,FFFFFF
+503,60011,503,Huebner Crosstown,,3,,609FBF,FFFFFF
+505,60011,505,Basse,,3,,2D5DA2,FFFFFF
+509,60011,509,Hildebrand,,3,,609FBF,FFFFFF
+51,60011,51,Nogalitos,,3,,2D5DA2,FFFFFF
+515,60011,515,Southcross,,3,,2D5DA2,FFFFFF
+522,60011,522,Babcock,,3,,609FBF,FFFFFF
+524,60011,524,General McMullen Frequent,,3,,CB2128,FFFFFF
+534,60011,534,Wurzbach Frequent,,3,,CB2128,FFFFFF
+552,60011,552,Loop 410 / W. W. White Skip,,3,,CB2128,FFFFFF
+602,60011,602,Medical Center / Blossom,,3,,2D5DA2,FFFFFF
+603,60011,603,Medical Center / UTSA,,3,,2D5DA2,FFFFFF
+604,60011,604,Medical Center / University Heights,,3,,609FBF,FFFFFF
+607,60011,607,Medical Center / Ingram,,3,,609FBF,FFFFFF
+609,60011,609,Medical Center / Ingram / Kel-Lac,,3,,2D5DA2,FFFFFF
+610,60011,610,Ingram / Northwest Crossing,,3,,609FBF,FFFFFF
+611,60011,611,Kel-Lac / Valley-Hi / Hidden Cove,,3,,2D5DA2,FFFFFF
+612,60011,612,Kel-Lac / Westlakes / Ingram,,3,,2D5DA2,FFFFFF
+615,60011,615,Kel-Lac / Heritage Park,,3,,2D5DA2,FFFFFF
+616,60011,616,Sky Harbor / Kel-Lac,,3,,2D5DA2,FFFFFF
+618,60011,618,Ingram / Westover Hills / Kel-Lac,,3,,2D5DA2,FFFFFF
+619,60011,619,Kel-Lac / Port SA,,3,,2D5DA2,FFFFFF
+62,60011,62,Kirk,,3,,609FBF,FFFFFF
+620,60011,620,Northwest Vista College / Ingram,,3,,2D5DA2,FFFFFF
+632,60011,632,Randolph / Ventura,,3,,2D5DA2,FFFFFF
+64,60011,64,US 90 Alamo Ranch Express,,3,,2D5BA2,FFFFFF
+647,60011,647,North Star / Harry Wurzbach,,3,,609FBF,FFFFFF
+648,60011,648,North Star / Stone Oak,,3,,609FBF,FFFFFF
+649,60011,649,North Star / N Blanco / Stone Oak,,3,,2D5DA2,FFFFFF
+651,60011,651,Deco District / Castle Hills,,3,,C0AD7A,FFFFFF
+66,60011,66,Ceralvo,,3,,609FBF,FFFFFF
+67,60011,67,Laredo,,3,,609FBF,FFFFFF
+68,60011,68,Guadalupe Frequent,,3,,CB2128,FFFFFF
+7,60011,7,US 281 Stone Oak Express,,3,,2D5DA2,FFFFFF
+75,60011,75,West Commerce Frequent,,3,,CB2128,FFFFFF
+76,60011,76,West Commerce Skip,,3,,CB2128,FFFFFF
+77,60011,77,Martin / Las Palmas Frequent,,3,,CB2128,FFFFFF
+79,60011,79,Ruiz / Culebra Park,,3,,2D5DA2,FFFFFF
+8,60011,8,North St Marys,,3,,2D5DA2,FFFFFF
+82,60011,82,Culebra Frequent,,3,,CB2128,FFFFFF
+88,60011,88,Bandera Frequent,,3,,CB2128,FFFFFF
+89,60011,89,Poplar,,3,,609FBF,FFFFFF
+9,60011,9,Broadway,,3,,2D5DA2,FFFFFF
+90,60011,90,Woodlawn,,3,,2D5DA2,FFFFFF
+92,60011,92,Brooks / Medical Center Express,,3,,C0AD7A,FFFFFF
+93,60011,93,Roadrunner Express,,3,,CB2128,FFFFFF
+95,60011,95,Fredericksburg Road Frequent,,3,,CB2128,FFFFFF
+96,60011,96,Vance Jackson Frequent,,3,,CB2128,FFFFFF
+97,60011,97,West Avenue,,3,,2D5DA2,FFFFFF
