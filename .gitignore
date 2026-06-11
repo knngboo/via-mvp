@@ -1,0 +1,27 @@
+# Claude Code
+.claude/
+CLAUDE.md
+
+# Cursor
+.cursor/
+
+# Dependencies
+node_modules/
+
+# Frontend build output
+frontend/build/
+
+# OS files
+.DS_Store
+
+# Run logs
+.run-logs/
+
+# Environment secrets
+secrets.env
+*.env
+
+# Local helper scripts
+pull.command
+push.command
+build.command
