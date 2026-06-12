@@ -1,28 +1,22 @@
-# Claude Code
-.claude/
-CLAUDE.md
-
-# Cursor
-.cursor/
-
 # Dependencies
 node_modules/
+.pnp
+.pnp.js
 
-# Frontend build output
-frontend/build/
+# Testing
+coverage/
 
-# OS files
+# Production Build
+dist/
+build/
+
+# Secrets & Environment Variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# OS Files
 .DS_Store
-
-# Run logs
-.run-logs/
-
-# Environment secrets
-secrets.env
-*.env
-
-# Local helper scripts
-pull.command
-push.command
-build.command
-github-login.command
+*.pem

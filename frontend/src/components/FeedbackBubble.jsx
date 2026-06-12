@@ -6,32 +6,80 @@ import copyIcon from '../assets/images/Icons=Copy.svg';
 import thumbsUpIcon from '../assets/images/Icons=Thumbs_up.svg';
 import thumbsDownIcon from '../assets/images/Icons=Thumbs_down.svg';
 import moreHorizIcon from '../assets/images/Icons=More_Horizontal.svg';
+import suiteChartsIcon from '../assets/images/SuiteIcons-Charts.svg';
+import suiteDataIcon from '../assets/images/SuiteIcons-Data.svg';
+import suiteMapsIcon from '../assets/images/SuiteIcons-Maps.svg';
+import chevronDownIcon from '../assets/images/Icons=chevron_down.svg';
 import loadIcon from '../assets/images/Icons=Load.svg';
 import Markdown from 'markdown-to-jsx';
-import { streamChatWithOpenAI } from '../services/openai';
-import { getAllUploadedFiles } from '../context/CsvContext';
 
-const SUGGESTED_QUESTIONS = [];
+const SUGGESTED_QUESTIONS = [
+  { text: "Are housing issues concentrated in specific neighborhoods in ZIP code 78207?",          icon: suiteMapsIcon   },
+  { text: "What are the largest mental health needs in ZIP code 78207?",                           icon: suiteDataIcon   },
+  { text: "How can we improve decision making on future funding to invest in the right services to address the highest needs on mental health in ZIP code 78207?", icon: suiteDataIcon },
+  { text: "How can we improve decision making on future funding to invest in the right services to address the highest needs every category related to the social determinant of health in ZIP code 78207?", icon: suiteChartsIcon },
+];
 
-export default function FeedbackBubble({
-  setLastQuery,
-  setLastBotResponse,
-  initialQuery,
-  chatHistory,
-  setChatHistory,
-}) {
+
+function deriveMaptitle(userText) {
+  const t = userText.toLowerCase();
+  const zipMatch = t.match(/\b(782\d{2})\b/);
+  const zip = zipMatch ? zipMatch[1] : '';
+  const suffix = zip ? ` in ${zip}` : '';
+
+  // SDOH / community needs
+  if (t.includes('social determinant') || t.includes('sdoh')) return `Community Needs by Domain${suffix}`;
+  // Mental health
+  if (t.includes('mental health') || t.includes('behavioral health')) return `Mental Health Needs${suffix}`;
+  // Housing
+  if (t.includes('housing') || t.includes('evict') || t.includes('rent')) return `Housing Needs${suffix}`;
+  // Economic
+  if (t.includes('economic') || t.includes('poverty') || t.includes('income') || t.includes('employment') || t.includes('job')) return `Economic Conditions${suffix}`;
+  // Health / public health
+  if (t.includes('health need') || t.includes('public health') || t.includes('diabetes') || t.includes('obesity') || t.includes('chronic')) return `Public Health Needs${suffix}`;
+  // Funding / investment / services
+  if (t.includes('fund') || t.includes('invest') || t.includes('service') || t.includes('decision')) return `Community Services${suffix}`;
+  // Survey / needs assessment
+  if (t.includes('survey') || t.includes('need') || t.includes('gap')) return `Needs Assessment${suffix}`;
+
+  // Pothole-specific fallbacks
+  if (zip) return `Map of Potholes in ${zip}`;
+  if (t.includes('west')) return 'Map of West San Antonio Potholes';
+  if (t.includes('worst') || t.includes('most')) return 'Map of Worst Pothole Areas';
+  if (t.includes('pci')) return 'Map of Pavement Conditions';
+  if (t.includes('complaint')) return 'Map of Active Complaints';
+  if (t.includes('route') || t.includes('bus') || t.includes('via')) return 'Map of Transit Routes';
+  return 'Map of Pothole Results';
+}
+
+function deriveConversationTitle(userText) {
+  const clean = userText.replace(/\?$/, '').trim();
+  return clean.length > 52 ? clean.slice(0, 49) + '…' : clean;
+}
+
+const VIZ_TYPES = [
+  { key: 'map',   label: 'Map View of San Antonio' },
+  { key: 'pie',   label: 'Pie Chart' },
+  { key: 'radar', label: 'Radar Chart' },
+  { key: 'bar',   label: 'Bar Chart' },
+];
+
+export default function FeedbackBubble({ setHighlightData, setChartData, restoreChartData, setMapTitle, chartType, setChartType, openVisualizationPanel, setIsLoading, setLastQuery, setLastBotResponse, initialQuery, chatHistory, setChatHistory }) {
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingPhase, setLoadingPhase] = useState(1);
+  const [openCitations, setOpenCitations] = useState({});
   const [openMoreIdx, setOpenMoreIdx] = useState(null);
+  const [vizModalOpen, setVizModalOpen] = useState(false);
+  const [vizModalMsg, setVizModalMsg] = useState(null);
   const moreDropdownRef = useRef(null);
   const [reactions, setReactions] = useState({});
   const [copiedIdx, setCopiedIdx] = useState(null);
   const historyRef = useRef(null);
   const textareaRef = useRef(null);
   const initialQuerySent = useRef(false);
-  const abortRef = useRef(null);
 
+  // Close "more" dropdown on outside click
   useEffect(() => {
     if (openMoreIdx === null) return;
     const handler = (e) => {
@@ -49,12 +97,14 @@ export default function FeedbackBubble({
     }
   }, [chatHistory, loading]);
 
+  // Switch to phase 2 after 2.5s of loading
   useEffect(() => {
     if (!loading) { setLoadingPhase(1); return; }
     const timer = setTimeout(() => setLoadingPhase(2), 2500);
     return () => clearTimeout(timer);
   }, [loading]);
 
+  // Auto-send query from URL ?q= param on first mount
   useEffect(() => {
     if (initialQuery && !initialQuerySent.current) {
       initialQuerySent.current = true;
@@ -67,67 +117,62 @@ export default function FeedbackBubble({
     const trimmed = text.trim();
     if (!trimmed) return;
 
+    const title = deriveMaptitle(trimmed);
     const userMsg = { from: 'user', text: trimmed };
-    const nextHistory = [...chatHistory, userMsg];
-    setChatHistory(nextHistory);
+    setChatHistory(prev => [...prev, userMsg]);
     if (setLastQuery) setLastQuery(trimmed);
     setMessage('');
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
     setLoading(true);
-
-    // Index where the bot's (initially empty) message will live, so we can
-    // update it in place as tokens stream in.
-    const botIdx = nextHistory.length;
-    let placeholderAdded = false;
-
-    const controller = new AbortController();
-    abortRef.current = controller;
+    if (setIsLoading) setIsLoading(true);
+    if (setHighlightData) setHighlightData(null);
+    if (setChartData) setChartData(null);
 
     try {
-      const files = getAllUploadedFiles();
-      const answerText = await streamChatWithOpenAI({
-        userMessage: trimmed,
-        files,
-        history: chatHistory,
-        signal: controller.signal,
-        onToken: (fullText) => {
-          if (!placeholderAdded) {
-            // First token: replace the "Working…" loader with a live bubble.
-            placeholderAdded = true;
-            setLoading(false);
-          }
-          setChatHistory(prev => {
-            const next = [...prev];
-            next[botIdx] = { from: 'bot', text: fullText };
-            return next;
-          });
-        },
+      const res = await fetch(`/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: trimmed }),
       });
-      // Ensure final text is committed even if no tokens streamed.
-      setChatHistory(prev => {
-        const next = [...prev];
-        next[botIdx] = { from: 'bot', text: answerText };
-        return next;
-      });
-      if (setLastBotResponse) setLastBotResponse(answerText);
-    } catch (err) {
-      // Aborted before any text arrived — silently stop, no error bubble.
-      if (err?.name !== 'AbortError') {
-        console.error('Chat error:', err);
-        setChatHistory(prev => [
-          ...prev,
-          { from: 'bot', text: `Error: ${err.message || 'Could not reach OpenAI'}` },
-        ]);
-      }
-    }
-    abortRef.current = null;
-    setLoading(false);
-  };
+      const data = await res.json();
+      const structured = data.structured || null;
+      const answerText = structured?.answer ?? data.response ?? '';
+      const hasMap = !!(data.highlight_data && data.highlight_data.length > 0);
+      const hasChart = !!(data.chart_data);
 
-  const handleStop = () => {
-    if (abortRef.current) abortRef.current.abort();
+      const citations = structured?.citations || [];
+      setChatHistory(prev => [
+        ...prev,
+        {
+          from: 'bot',
+          text: answerText,
+          structured,
+          citations,
+          mapTag: hasMap ? title : null,
+          chartTag: hasChart ? data.chart_data.title : null,
+          savedChartData: data.chart_data || null,
+          savedHighlightData: data.highlight_data || null,
+          savedTitle: hasChart ? data.chart_data.title : hasMap ? title : null,
+        },
+      ]);
+
+      if (setHighlightData) setHighlightData(data.highlight_data || null);
+      if (setChartData) setChartData(data.chart_data || null);
+      if (setLastBotResponse) setLastBotResponse(answerText);
+      if (setMapTitle) setMapTitle(deriveConversationTitle(trimmed));
+    } catch (err) {
+      console.error('Chat error:', err);
+      setChatHistory(prev => [
+        ...prev,
+        { from: 'bot', text: `Error: ${err.message || 'Could not connect to chatbot at ' + (process.env.REACT_APP_BACKEND_URL || 'http://localhost:5005')}` },
+      ]);
+      if (setHighlightData) setHighlightData(null);
+      if (setChartData) setChartData(null);
+    }
+    setLoading(false);
+    if (setIsLoading) setIsLoading(false);
   };
 
   const handleSubmit = (e) => {
@@ -181,41 +226,57 @@ export default function FeedbackBubble({
         <div className="landing-body">
           <div className="landing-greeting">Hi Buffi,</div>
           <div className="landing-heading">What should we dive into?</div>
-          {SUGGESTED_QUESTIONS.length > 0 && (
-            <div className="landing-questions">
-              {SUGGESTED_QUESTIONS.map((q, i) => (
-                <button
-                  key={i}
-                  className="landing-question-btn"
-                  onClick={() => {
-                    setMessage(q.text);
-                    if (textareaRef.current) {
-                      textareaRef.current.focus();
-                      textareaRef.current.style.height = 'auto';
-                      textareaRef.current.style.height = textareaRef.current.scrollHeight + 'px';
-                    }
-                  }}
-                >
-                  <span className="landing-question-icon">
-                    <img src={q.icon} alt="" className="landing-q-icon" />
-                  </span>
-                  {q.text}
-                </button>
-              ))}
-            </div>
-          )}
+          <div className="landing-questions">
+            {SUGGESTED_QUESTIONS.map((q, i) => (
+              <button
+                key={i}
+                className="landing-question-btn"
+                onClick={() => sendMessage(q.text)}
+              >
+                <span className="landing-question-icon">
+                  <img src={q.icon} alt="" className="landing-q-icon" />
+                </span>
+                {q.text}
+              </button>
+            ))}
+          </div>
         </div>
         <ChatInput
           message={message}
           setMessage={setMessage}
           onSubmit={handleSubmit}
-          onStop={handleStop}
           loading={loading}
           textareaRef={textareaRef}
         />
       </div>
     );
   }
+
+  // ── Chat State ──
+  const lastChartIdx = chatHistory.reduce((acc, msg, i) => msg.chartTag ? i : acc, -1);
+  const lastVizIdx = chatHistory.reduce((acc, msg, i) => (msg.chartTag || msg.mapTag) ? i : acc, -1);
+
+  // Build a set of dataset names already shown in earlier bot messages (for dedup)
+  const seenDatasets = [];
+  chatHistory.forEach((msg) => {
+    seenDatasets.push(new Set(msg.from === 'bot' ? (msg.citations || []).map(c => c.dataset) : []));
+  });
+
+  const restoreViz = (msg, mode = 'chart') => {
+    // Use restoreChartData (raw setter) so chart type is NOT reset to 'bar'
+    const chartSetter = restoreChartData || setChartData;
+    if (mode === 'map') {
+      // Clear chart so the map panel is revealed
+      if (chartSetter) chartSetter(null);
+    } else {
+      if (msg.savedChartData && chartSetter) chartSetter(msg.savedChartData);
+      else if (chartSetter) chartSetter(null);
+    }
+    if (msg.savedHighlightData && setHighlightData) setHighlightData(msg.savedHighlightData);
+    else if (setHighlightData) setHighlightData(null);
+    if (msg.savedTitle && setMapTitle) setMapTitle(msg.savedTitle);
+    if (openVisualizationPanel) openVisualizationPanel();
+  };
 
   return (
     <div className="chat-wrapper">
@@ -226,11 +287,102 @@ export default function FeedbackBubble({
               <div className="user-pill">{msg.text}</div>
             ) : (
               <div className="bot-block">
+                {msg.chartTag && (
+                  <button className="map-tag chart-tag map-tag--clickable" onClick={() => restoreViz(msg, 'chart')} title="Click to show this chart">
+                    <img src={suiteChartsIcon} alt="chart" className="suite-tag-icon" />
+                    <span className="map-tag-label">{msg.chartTag}</span>
+                  </button>
+                )}
+                {msg.mapTag && (
+                  <button className="map-tag map-tag--clickable" onClick={() => restoreViz(msg, 'map')} title="Click to show this map">
+                    <img src={suiteMapsIcon} alt="map" className="suite-tag-icon" />
+                    <span className="map-tag-label">{msg.mapTag}</span>
+                  </button>
+                )}
+                {!msg.chartTag && !msg.mapTag && (
+                  <div className="map-tag data-tag">
+                    <img src={suiteDataIcon} alt="data" className="suite-tag-icon" />
+                    <span className="map-tag-label">Data Response</span>
+                  </div>
+                )}
                 <div className="bot-text">
                   <Markdown options={{ forceBlock: true }}>
                     {String(msg.text).replace(/\n/g, '  \n')}
                   </Markdown>
                 </div>
+                {msg.structured?.reasoning_summary && (
+                  <div className="structured-panel structured-reasoning">
+                    <div className="structured-label">Reasoning</div>
+                    <Markdown options={{ forceBlock: true }}>
+                      {String(msg.structured.reasoning_summary).replace(/\n/g, '  \n')}
+                    </Markdown>
+                  </div>
+                )}
+                {msg.structured?.recommendations?.length > 0 && (
+                  <div className="structured-panel structured-recs">
+                    <div className="structured-label">Recommendations</div>
+                    <ul>
+                      {msg.structured.recommendations.map((line, ri) => (
+                        <li key={ri}>{line}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {msg.structured?.limitations?.length > 0 && (
+                  <div className="structured-panel structured-limits">
+                    <div className="structured-label">Limitations</div>
+                    <ul>
+                      {msg.structured.limitations.map((line, ix) => (
+                        <li key={ix}>{line}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {(() => {
+                  // Only show citations not already displayed in a prior message
+                  const priorSeen = new Set(
+                    seenDatasets.slice(0, idx).flatMap(s => [...s])
+                  );
+                  const newCitations = (msg.citations || []).filter(
+                    c => !priorSeen.has(c.dataset)
+                  );
+                  if (newCitations.length === 0) return null;
+                  return (
+                    <div className="citations-panel">
+                      <button
+                        className="citations-toggle"
+                        onClick={() => setOpenCitations(prev => ({ ...prev, [idx]: !prev[idx] }))}
+                      >
+                        <span className="citations-toggle-label">Sources ({newCitations.length})</span>
+                        <img
+                          src={chevronDownIcon}
+                          alt=""
+                          className={`citations-toggle-arrow${openCitations[idx] ? ' citations-toggle-arrow--open' : ''}`}
+                        />
+                      </button>
+                      {openCitations[idx] && (
+                        <ol className="citations-list">
+                          {newCitations.map((c, ci) => (
+                            <li key={ci} className="citation-item">
+                              <span className="citation-dataset">{c.dataset}</span>
+                              {c.source && <span className="citation-source"> · {c.source}</span>}
+                              <div className="citation-links">
+                                {c.url && <a href={c.url} target="_blank" rel="noreferrer" className="citation-link">Source ↗</a>}
+                                {c.data_link && <a href={c.data_link} target="_blank" rel="noreferrer" className="citation-link">Data ↗</a>}
+                              </div>
+                            </li>
+                          ))}
+                        </ol>
+                      )}
+                    </div>
+                  );
+                })()}
+                {msg.structured?.follow_up_question && (
+                  <div className="structured-followup">
+                    <span className="structured-label">Try asking</span>
+                    <span className="structured-followup-q">{msg.structured.follow_up_question}</span>
+                  </div>
+                )}
                 <div className="reaction-bar">
                   <div className="reaction-copy-wrapper">
                     <button
@@ -297,7 +449,7 @@ export default function FeedbackBubble({
                   <img src={loadIcon} alt="" className="loading-state-icon" />
                   <span>Working</span>
                 </div>
-                <div className="loading-state-line2">Asking OpenAI</div>
+                <div className="loading-state-line2">Searching your sources</div>
               </div>
             </div>
           </div>
@@ -308,15 +460,56 @@ export default function FeedbackBubble({
         message={message}
         setMessage={setMessage}
         onSubmit={handleSubmit}
-        onStop={handleStop}
         loading={loading}
         textareaRef={textareaRef}
       />
+
+      {/* Visualization picker modal */}
+      {vizModalOpen && vizModalMsg && (
+        <div className="viz-modal-overlay" onClick={() => setVizModalOpen(false)}>
+          <div className="viz-modal" onClick={e => e.stopPropagation()}>
+            <div className="viz-modal-header">
+              <span className="viz-modal-title">Which way would you like me to visualize the data?</span>
+              <button className="viz-modal-close" onClick={() => setVizModalOpen(false)}>✕</button>
+            </div>
+            <div className="viz-modal-list">
+              {VIZ_TYPES.map((opt, i) => {
+                const selectedKey = vizModalMsg.mapTag && !vizModalMsg.chartTag ? 'map' : chartType;
+                const isSelected = selectedKey === opt.key;
+                return (
+                <div key={opt.key}>
+                  <button
+                    className={`viz-modal-option${isSelected ? ' viz-modal-option--selected' : ''}`}
+                    onClick={() => {
+                      if (openVisualizationPanel) openVisualizationPanel();
+                      if (opt.key === 'map') {
+                        restoreViz(vizModalMsg, 'map');
+                      } else {
+                        if (setChartType) setChartType(opt.key);
+                        restoreViz(vizModalMsg, 'chart');
+                      }
+                      setVizModalOpen(false);
+                    }}
+                  >
+                    <span className={`viz-modal-radio${isSelected ? ' viz-modal-radio--selected' : ''}`} />
+                    <span className="viz-modal-label">{opt.label}</span>
+                  </button>
+                  {i < VIZ_TYPES.length - 1 && <div className="viz-modal-divider" />}
+                </div>
+              );
+              })}
+            </div>
+            <div className="viz-modal-footer">
+              <button className="viz-modal-skip" onClick={() => setVizModalOpen(false)}>Skip</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function ChatInput({ message, setMessage, onSubmit, onStop, loading, textareaRef }) {
+function ChatInput({ message, setMessage, onSubmit, loading, textareaRef }) {
   const fileRef = useRef(null);
   const [attachedFile, setAttachedFile] = useState(null);
 
@@ -369,25 +562,14 @@ function ChatInput({ message, setMessage, onSubmit, onStop, loading, textareaRef
           <button type="button" className="at-btn" tabIndex={-1} onClick={() => fileRef.current?.click()} title="Attach file">
             <img src={attachIcon} alt="Attach" className="send-icon" />
           </button>
-          {loading ? (
-            <button
-              type="button"
-              className="send-btn send-btn--stop"
-              onClick={onStop}
-              title="Stop generating"
-            >
-              <span className="stop-icon" />
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="send-btn"
-              disabled={!message.trim()}
-              onClick={onSubmit}
-            >
-              <img src={arrowUpIcon} alt="Send" className="send-icon" />
-            </button>
-          )}
+          <button
+            type="button"
+            className="send-btn"
+            disabled={loading || !message.trim()}
+            onClick={onSubmit}
+          >
+            <img src={arrowUpIcon} alt="Send" className="send-icon" />
+          </button>
         </div>
       </div>
     </div>

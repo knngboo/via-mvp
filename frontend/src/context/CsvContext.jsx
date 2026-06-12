@@ -1,25 +1,19 @@
-// src/context/CsvContext.jsx
-import React, { createContext, useState, useContext, useEffect } from 'react';
+// src/components/CsvContext.jsx
+import React, { createContext, useState, useContext } from 'react';
 
 const CsvContext = createContext();
 
-const STORAGE_KEY = 'buffi_csv_batches';
+const INITIAL_BATCH_FILES = [
+  { id: 1, name: 'zoning_classification_map.csv',     folder: 'Housing',        status: 'Error',  tier: 'Tier 1: Public',               size: '1.2 MB', confidence: 'Low',  issue: 'Row values unclear — the field "geo_ref" could not be interpreted. Please clarify what this column represents.' },
+  { id: 2, name: 'housing_shortfall_by_district.csv', folder: 'Housing',        status: 'Error',  tier: 'Tier 1: Public',               size: '1.2 MB', confidence: 'Low',  issue: 'The field "geo_ref" could not be interpreted. Please clarify what this column represents.' },
+  { id: 3, name: 'sa_housing_gap_analysis.csv',       folder: 'Housing',        status: 'Ready',  tier: 'Tier 2: Internal Operational', size: '1.2 MB', confidence: 'High', issue: '' },
+  { id: 4, name: 'permit_activity_vs_demand.csv',     folder: 'Safety',         status: 'Ready',  tier: 'Tier 3: Restricted',           size: '1.2 MB', confidence: 'High', issue: '' },
+  { id: 5, name: 'sa_landuse_zoning2026.csv',         folder: 'Infrastructure', status: 'Ready',  tier: 'Tier 3: Restricted',           size: '1.2 MB', confidence: 'High', issue: '' },
+];
 
-// Label of the demo batch that used to ship with the app — stripped out of
-// any localStorage that still has it.
-const LEGACY_SEED_LABEL = 'April 2nd 2025 3:51 PM Queue';
-
-const loadBatches = () => {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((b) => b && b.label !== LEGACY_SEED_LABEL);
-  } catch {
-    return [];
-  }
-};
+export const INITIAL_BATCHES = [
+  { id: 1, label: 'April 2nd 2025 3:51 PM Queue', files: INITIAL_BATCH_FILES },
+];
 
 export function CsvProvider({ children }) {
   const [csvData, setCsvData] = useState([]);
@@ -27,15 +21,7 @@ export function CsvProvider({ children }) {
   const [csvStats, setCsvStats] = useState(null);
   const [csvAnalysis, setCsvAnalysis] = useState(null);
   const [columnDescriptions, setColumnDescriptions] = useState({});
-  const [batches, setBatches] = useState(loadBatches);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(batches));
-    } catch {
-      // Likely QuotaExceededError — silently ignore so the UI still works.
-    }
-  }, [batches]);
+  const [batches, setBatches] = useState(INITIAL_BATCHES);
 
   return (
     <CsvContext.Provider value={{
@@ -55,18 +41,6 @@ export function CsvProvider({ children }) {
       {children}
     </CsvContext.Provider>
   );
-}
-
-// Convenience: flat list of every uploaded file across all batches.
-export function getAllUploadedFiles() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    const batches = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(batches)) return [];
-    return batches.flatMap((b) => (Array.isArray(b.files) ? b.files : []));
-  } catch {
-    return [];
-  }
 }
 
 // Custom hook for convenience

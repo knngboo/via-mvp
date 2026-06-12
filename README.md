@@ -1,95 +1,56 @@
-# Buffi
+# VIA MVP Platform
 
-Buffi is a browser-based data assistant. Upload CSV files and chat with **Buffi**, an AI assistant that answers questions about your data. It's a fully client-side React app — your OpenAI API key and data stay in your browser and are sent only to OpenAI.
+## Project Overview
 
-## Features
+**The Full Stack Architecture**
+*   **Frontend:** React built with Vite for lightning-fast UI rendering.
+*   **Backend:** Node.js with Express to handle API requests and data processing.
+*   **Database:** PostgreSQL to securely store all platform data.
+*   **Orchestration:** Docker Compose to run the entire stack locally with a single command.
 
-- **CSV upload & ingestion** — drag in CSVs; rows are parsed and made available to the chat.
-- **AI chat** — ask questions in natural language; answers render as Markdown.
-- **Streaming responses** — the assistant types out its answer token-by-token as it arrives, like ChatGPT.
-- **Stop button** — halt a response mid-stream; whatever text already arrived is kept.
-- **Maps & charts** — built-in Leaflet maps and chart components for visualizing data.
-- **Plugins** — drop-in plugin folders that add a data dashboard. Activate one in Settings and its dashboard appears in the sidebar. See [Plugin system](#plugin-system).
+**The Full Package**
+*   **Secure Login:** A token-based authentication system to protect all routes and platform access.
+*   **Buffi AI Dashboard:** The core interactive interface featuring markdown-enabled chat, geospatial mapping (Leaflet), and advanced data visualization (MUI Charts).
+*   **Hub Data Platform:** A dedicated ingestion portal allowing users to securely upload, queue, clarify, and submit massive CSV datasets to the backend system.
+*   **Database Architecture:** A fully containerized PostgreSQL database equipped with automated initialization scripts for instant, zero-config local setup.
 
-## Getting started
+## Local Setup Instructions
 
-```bash
-cd frontend
-npm install
-npm start
-```
+You do not need to manually install Node.js, NPM, or any packages to run this project. Docker handles absolutely everything for you in the background.
 
-The app runs at [http://localhost:3000](http://localhost:3000).
+### Prerequisites
+*   Docker Desktop installed and running on your machine.
 
-Add your OpenAI API key in **Settings** — it's stored in your browser's `localStorage` and used only for direct calls to the OpenAI API.
+### Quick Start
+1. Open your terminal.
+2. Navigate into the root directory of the project:
 
-## Scripts
+    cd via-mvp
 
-Run from the `frontend/` directory:
+3. Boot up the entire architecture (frontend, backend, and database) by running:
 
-- `npm start` — start the dev server
-- `npm run build` — production build
-- `npm test` — run tests
+    docker compose up --build
 
-## How it works
+4. Once the terminal says the containers are running, open your web browser and go to:
+*   **Frontend UI:** `http://localhost:5173`
+*   **Backend API:** `http://localhost:5001`
 
-- No backend — the browser calls the OpenAI `/chat/completions` endpoint directly.
-- CSV parsing, chat history, and the API key are all handled in the browser.
-- The model is configurable in Settings (defaults to `gpt-5-mini`).
+*(Note: If you ever add new dependencies to the project in the future, always run the command with the `--build` flag to ensure Docker installs them).*
 
-## Plugin system
+## Accomplished Checkpoints
+*   [x] Fully containerized Frontend, Backend, and Database with live hot-reloading.
+*   [x] PostgreSQL configured with automated initialization scripts.
+*   [x] Express server established and listening on port 5001.
+*   [x] Clean React architecture established (`src/components`, `src/pages`, `src/context`, `src/services`).
+*   [x] Secure React Router protected by an AuthContext token verification system.
+*   [x] Merged fragmented legacy directories into a unified, flattened frontend architecture.
+*   [x] Implemented UI for Data Platform pages (Sources, Queue, Clarification, Success).
+*   [x] Integrated complex third-party libraries (Leaflet, Turf, MUI Charts, Emotion) for the main Dashboard.
 
-Buffi supports **drop-in, per-client plugins**. Each plugin adds a dashboard, and
-everything that plugin owns — its visualization UI *and* its data-parsing logic —
-lives entirely inside its own folder in the repo-root `Plugins/` directory
-(outside the app's `frontend/src`). Adding a new client is just adding a folder;
-no other file in the app changes.
+## Next Milestones
+*   [ ] UI Polish: Debug and fix the distorted CSS layouts on the main dashboard caused by the architecture migration.
+*   [ ] API Wiring: Replace the frontend dummy data services with real Axios calls to the Express backend.
+*   [ ] Database Schema: Design and implement the actual Postgres tables for User accounts and CSV metadata.
+*   [ ] Backend Processing: Build the Express logic to parse, validate, and store uploaded CSV files.
+*   [ ] AI Chat Integration: Wire the dashboard's chat UI to the AI processing layer.
 
-```
-Plugins/                   (repo root — sibling of frontend/)
-  index.js                 registry — auto-discovers every plugin folder
-  Via/                     one folder per client (Via is a placeholder)
-    index.js               manifest: { id, name, Dashboard, parse }
-    ParseLogic/            this client's data parsing  → parse(files)
-    Dashboard/             this client's visualization UI
-```
-
-The app reaches this out-of-`src` folder via [CRACO](https://craco.js.org/)
-(`frontend/craco.config.js`): it relaxes Create React App's src-only import scope
-and exposes the folder under the `Plugins` import alias. This is why the npm
-scripts run through `craco` instead of `react-scripts`.
-
-**How it works**
-
-1. Plugins are **auto-discovered** — any `Plugins/<Client>/index.js` that exports a
-   manifest is picked up automatically (no registration step).
-2. The manifest is the whole contract: `{ id, name, Dashboard, parse }`.
-3. Pick a plugin in **Settings → Active plugin**. The id is saved to `localStorage`
-   and a `buffi:plugin-change` event fires.
-4. When active, a **Dashboard** item appears in the sidebar and routes to
-   `/dashboard`.
-5. The generic host ([`PluginDashboardPage.jsx`](frontend/src/components/PluginDashboardPage.jsx))
-   runs the plugin's `parse(files)` over the uploaded CSVs and renders its
-   `Dashboard` with `{ data, files }`. No client-specific code lives in the host.
-
-**Adding a client:** copy `Plugins/Via/`, rename it, give it a unique `id`/`name`,
-implement `parse(files)` in `ParseLogic/`, and build the UI in `Dashboard/`. See
-[`Plugins/README.md`](Plugins/README.md) for the full guide.
-
-## Project structure
-
-```
-Plugins/         drop-in per-client plugins (see Plugin system above)
-frontend/
-  craco.config.js  build config that wires in the root Plugins/ folder
-  src/
-    components/    UI components (chat, plugin dashboard host, etc.)
-    services/      OpenAI calls (openai.js) and CSV parsing
-    context/       shared state (uploaded files, etc.)
-    pages/         routed pages
-    styles/        component CSS
-```
-
-## Tech stack
-
-React 19 · React Router · OpenAI API · Leaflet · Recharts/MUI X Charts · PapaParse · markdown-to-jsx

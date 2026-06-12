@@ -176,7 +176,8 @@
   font-weight: 600;
 }
 
-.bot-text ul, .bot-text ol {
+.bot-text ul,
+.bot-text ol {
   margin: 4px 0;
   padding-left: 18px;
 }
@@ -774,7 +775,8 @@ button.map-tag {
   font-weight: 570;
   font-size: 16px;
   line-height: 24px;
-  padding-left: 28px; /* icon width (20px) + gap (8px) */
+  padding-left: 28px;
+  /* icon width (20px) + gap (8px) */
 }
 
 .loading-state-icon {
@@ -789,8 +791,13 @@ button.map-tag {
 }
 
 @keyframes spin {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ── Chat Input Area ── */
@@ -808,7 +815,8 @@ button.map-tag {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: var(--spacing-300); /* Spacing 300 = 8px */
+  padding: var(--spacing-300);
+  /* Spacing 300 = 8px */
   min-height: 88px;
   border: 1px solid var(--Grey-200);
   border-radius: 10px;
@@ -937,20 +945,4 @@ button.map-tag {
 
 .send-btn .send-icon {
   filter: brightness(0) invert(1);
-}
-
-.send-btn--stop {
-  background: #000B84;
-}
-
-.send-btn--stop:hover {
-  background: var(--Primary-950);
-}
-
-.stop-icon {
-  width: 11px;
-  height: 11px;
-  border-radius: 2px;
-  background: #fff;
-  display: block;
 }
