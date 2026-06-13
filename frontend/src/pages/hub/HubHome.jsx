@@ -29,10 +29,12 @@ export default function Home() {
 
     try {
       const result = await apiService.login(email, password);
-      if (result.success) {
+      if (result.token) {
         localStorage.removeItem('buffi_active_conv');
-        login(result.token, result.user);
+        login(result.token, result.username, result.role);
         navigate('/chat');
+      } else {
+        setError('Login failed. Please try again.');
       }
     } catch (error) {
       if (error.message === 'Failed to fetch' || error.message?.includes('unavailable')) {

@@ -5,156 +5,75 @@ class ApiService {
     this.baseURL = API_BASE_URL;
   }
 
-  // Health check
+  // Helper to get auth headers
+  getAuthHeaders(includeContentType = true) {
+    const token = localStorage.getItem('via_token');
+    const headers = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    if (includeContentType) {
+      headers['Content-Type'] = 'application/json';
+    }
+    return headers;
+  }
+
+  // Health check (hits root /health, not /api/health)
   async healthCheck() {
     try {
-      const response = await fetch(`${this.baseURL}/health`);
-      return await response.json();
+      const response = await fetch('/health');
+      return await response.text();
     } catch (error) {
       console.error('Health check failed:', error);
       throw error;
     }
   }
 
-  // Upload CSV file
-  async uploadCSV(file) {
+  // Register a new user
+  async register(username, password, adminSecret) {
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const response = await fetch(`${this.baseURL}/upload`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Upload failed');
-      }
-
-      return await response.json();
-    } catch (error) {
-      console.error('Upload failed:', error);
-      throw error;
-    }
-  }
-
-  // Analyze CSV data
-  async analyzeCSV(csvData) {
-    try {
-      const response = await fetch(`${this.baseURL}/analyze`, {
+      const response = await fetch(`${this.baseURL}/register`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'x-admin-secret': adminSecret
         },
-        body: JSON.stringify({ csvData }),
+        body: JSON.stringify({ username, password }),
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Analysis failed');
+      const rawText = await response.text();
+
+      let data;
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        throw new Error(`Server returned invalid response (${response.status}): ${rawText.substring(0, 100)}`);
       }
 
-      return await response.json();
-    } catch (error) {
-      console.error('Analysis failed:', error);
-      throw error;
-    }
-  }
-
-  // Download CSV file
-  async downloadCSV(csvData, filename = 'processed_data.csv') {
-    try {
-      const response = await fetch(`${this.baseURL}/download`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ csvData, filename }),
-      });
-
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Download failed');
+        throw new Error(data.message || data.error || 'Registration failed');
       }
 
-      // Create blob and download
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-
-      return { success: true };
+      return data;
     } catch (error) {
-      console.error('Download failed:', error);
-      throw error;
-    }
-  }
-
-  // Submit feedback
-  async submitFeedback(feedbackData) {
-    try {
-      const response = await fetch(`${this.baseURL}/feedback`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(feedbackData),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Feedback submission failed');
-      }
-
-      return await response.json();
-    } catch (error) {
-      console.error('Feedback submission failed:', error);
-      throw error;
-    }
-  }
-
-  // Validate CSV data
-  async validateCSV(csvData) {
-    try {
-      const response = await fetch(`${this.baseURL}/validate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ csvData }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Validation failed');
-      }
-
-      return await response.json();
-    } catch (error) {
-      console.error('Validation failed:', error);
+      console.error('Registration failed:', error);
       throw error;
     }
   }
 
   // Login user
-  async login(email, password) {
+  async login(username, password) {
     try {
       const response = await fetch(`${this.baseURL}/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ email, password }),
+        // Support both username/password depending on backend expectation (it's username)
+        body: JSON.stringify({ username, password }),
       });
 
       const rawText = await response.text();
-      console.log('Login raw response:', response.status, rawText);
 
       let data;
       try {
@@ -174,58 +93,108 @@ class ApiService {
     }
   }
 
-  // Verify token
-  async verifyToken(token) {
+  // Upload CSV file (Sources)
+  async uploadCSV(file) {
     try {
-      const response = await fetch(`${this.baseURL}/verify-token`, {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      // don't include Content-Type, let browser set it with boundary
+      const headers = this.getAuthHeaders(false);
+
+      const response = await fetch(`${this.baseURL}/sources`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ token }),
+        headers,
+        body: formData,
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Token verification failed');
+        throw new Error(errorData.error || 'Upload failed');
       }
 
       return await response.json();
     } catch (error) {
-      console.error('Token verification failed:', error);
+      console.error('Upload failed:', error);
       throw error;
     }
   }
 
-  // List uploaded files
-  async listFiles() {
+  // Get all sources
+  async getSources() {
     try {
-      const response = await fetch(`${this.baseURL}/files`);
+      const response = await fetch(`${this.baseURL}/sources`, {
+        headers: this.getAuthHeaders(),
+      });
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to list files');
+        throw new Error('Failed to get sources');
       }
       return await response.json();
     } catch (error) {
-      console.error('Failed to list files:', error);
+      console.error('Failed to get sources:', error);
       throw error;
     }
   }
 
-  // Get file information
-  async getFileInfo(filename) {
+  // Delete a source
+  async deleteSource(id) {
     try {
-      const response = await fetch(`${this.baseURL}/files/${encodeURIComponent(filename)}`);
+      const response = await fetch(`${this.baseURL}/sources/${id}`, {
+        method: 'DELETE',
+        headers: this.getAuthHeaders(),
+      });
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to get file info');
+        throw new Error('Failed to delete source');
       }
       return await response.json();
     } catch (error) {
-      console.error('Failed to get file info:', error);
+      console.error('Failed to delete source:', error);
+      throw error;
+    }
+  }
+
+  // Submit metadata context for an uploaded source (P2-3)
+  async submitContext(id, formData) {
+    try {
+      const response = await fetch(`${this.baseURL}/sources/${id}/context`, {
+        method: 'PATCH',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({
+          projectName:    formData.projectName    || null,
+          description:    formData.description    || null,
+          dataDomain:     formData.dataDomain      || null,
+          coverageStart:  formData.coverageStart   || null,
+          coverageEnd:    formData.coverageEnd     || null,
+          ongoing:        Boolean(formData.ongoing),
+          agencyResponse: formData.agencyResponse  || null,
+        }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Failed to save submission context');
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('Context submission failed:', error);
+      throw error;
+    }
+  }
+
+  // Get Stats
+  async getStats() {
+    try {
+      const response = await fetch(`${this.baseURL}/stats`, {
+        headers: this.getAuthHeaders(),
+      });
+      if (!response.ok) {
+        throw new Error('Failed to get stats');
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('Failed to get stats:', error);
       throw error;
     }
   }
 }
 
-export default new ApiService(); 
+export default new ApiService();

@@ -1,0 +1,55 @@
+services:
+  postgres:
+    image: postgis/postgis:15-3.3
+    # Credentials loaded from .env — never hardcoded in this file.
+    # Set POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB in backend/.env
+    env_file:
+      - ./backend/.env
+    # Port NOT exposed to the host in production.
+    # The backend container reaches postgres via Docker's internal network only.
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./backend/db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "pg_isready", "-d", "${POSTGRES_DB:-via_mvp}", "-U", "${POSTGRES_USER:-admin}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    # Credentials loaded from .env
+    env_file:
+      - ./backend/.env
+    environment:
+      # Override host to use Docker's internal DNS name
+      POSTGRES_HOST: postgres
+      PORT: 5001
+    # Port NOT exposed to the host in production.
+    # Nginx proxies /api to the backend via Docker's internal network.
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pg_data:

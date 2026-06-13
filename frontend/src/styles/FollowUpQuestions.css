@@ -1,0 +1,342 @@
+/* ── Follow-up Stepper (one question at a time, in place of the input box) ── */
+.followup-stepper {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  background: var(--Grey-50);
+  font-family: 'Saans TRIAL', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.followup-stepper-inner {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--Grey-200);
+  border-radius: 10px;
+  background: var(--Grey-50);
+  animation: followup-in 0.22s ease;
+}
+
+@keyframes followup-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Re-render the question with a soft fade each time the step changes. */
+.followup-stepper-inner .followup-question {
+  animation: followup-step-in 0.18s ease;
+}
+
+@keyframes followup-step-in {
+  from { opacity: 0; transform: translateX(6px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* ── Header ── */
+.followup-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.followup-progress {
+  font-size: 12px;
+  font-weight: 380;
+  color: var(--Grey-600);
+  letter-spacing: 0.01em;
+}
+
+/* ── Progress track ── */
+.followup-progress-track {
+  display: flex;
+  gap: 6px;
+}
+
+.followup-progress-seg {
+  flex: 1;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--Grey-200);
+  transition: background 0.2s;
+}
+
+.followup-progress-seg--done {
+  background: var(--Primary-500);
+}
+
+.followup-progress-seg--active {
+  background: var(--Primary-400);
+}
+
+.followup-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--Primary-100);
+  color: var(--Primary-600);
+  font-size: 11px;
+  font-weight: 570;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.followup-subtitle {
+  font-size: 13px;
+  font-weight: 380;
+  color: var(--Grey-600);
+  letter-spacing: 0.01em;
+}
+
+/* ── Question block ── */
+.followup-question {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.followup-q-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.followup-q-chip {
+  font-size: 11px;
+  font-weight: 570;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--Grey-600);
+}
+
+.followup-q-multi {
+  font-size: 11px;
+  font-weight: 380;
+  color: var(--Grey-500);
+  font-style: italic;
+}
+
+.followup-q-text {
+  font-size: 15px;
+  font-weight: 570;
+  line-height: 20px;
+  letter-spacing: 0.01em;
+  color: var(--Grey-1000);
+}
+
+/* ── Options ── */
+.followup-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.followup-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--Grey-200);
+  border-radius: 10px;
+  background: var(--Grey-50);
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.13s, border-color 0.13s;
+}
+
+.followup-option:hover:not(:disabled) {
+  background: var(--Grey-100);
+  border-color: var(--Grey-300);
+}
+
+.followup-option--selected {
+  border-color: var(--Primary-500);
+  background: var(--Primary-100);
+}
+
+.followup-option--selected:hover:not(:disabled) {
+  background: var(--Primary-100);
+  border-color: var(--Primary-500);
+}
+
+.followup-option:disabled {
+  cursor: default;
+}
+
+/* Radio / checkbox marker */
+.followup-marker {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  border-radius: 50%;
+  border: 1.5px solid var(--Grey-400);
+  background: #fff;
+  transition: border-color 0.13s, background 0.13s;
+  position: relative;
+}
+
+.followup-marker--box {
+  border-radius: 5px;
+}
+
+.followup-option--selected .followup-marker {
+  border-color: var(--Primary-500);
+  border-width: 5px;
+}
+
+.followup-option--selected .followup-marker--box {
+  border-width: 1.5px;
+  background: var(--Primary-500);
+}
+
+.followup-option--selected .followup-marker--box::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.followup-option-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.followup-option-label {
+  font-size: 14px;
+  font-weight: 570;
+  line-height: 19px;
+  letter-spacing: 0.01em;
+  color: var(--Grey-1000);
+}
+
+.followup-option-desc {
+  font-size: 13px;
+  font-weight: 380;
+  line-height: 18px;
+  letter-spacing: 0.01em;
+  color: var(--Grey-600);
+}
+
+/* ── Other free-text input ── */
+.followup-other-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 2px;
+  padding: 9px 12px;
+  border: 1px solid var(--Grey-300);
+  border-radius: 10px;
+  background: #fff;
+  font-size: 14px;
+  font-weight: 380;
+  font-family: inherit;
+  letter-spacing: 0.01em;
+  color: var(--Grey-1000);
+  outline: none;
+  transition: border-color 0.13s;
+}
+
+.followup-other-input:focus {
+  border-color: var(--Primary-500);
+}
+
+.followup-other-input::placeholder {
+  color: var(--Grey-500);
+}
+
+.followup-other-input:disabled {
+  background: var(--Grey-100);
+}
+
+/* ── Footer ── */
+.followup-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.followup-back {
+  display: inline-flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 16px;
+  border: 1px solid var(--Grey-300);
+  border-radius: 999px;
+  background: var(--Grey-50);
+  color: var(--Grey-800);
+  font-size: 14px;
+  font-weight: 570;
+  font-family: inherit;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.followup-back:hover:not(:disabled) {
+  background: var(--Grey-100);
+}
+
+.followup-back:disabled {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.followup-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  padding: 0 18px;
+  border: none;
+  border-radius: 999px;
+  background: #000B84;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 570;
+  font-family: inherit;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.followup-send:hover:not(:disabled) {
+  background: var(--Primary-950);
+}
+
+.followup-send:disabled {
+  background: var(--Grey-300);
+  color: var(--Grey-50);
+  cursor: not-allowed;
+}
+
+.followup-hint {
+  font-size: 12px;
+  font-weight: 380;
+  color: var(--Grey-500);
+  letter-spacing: 0.01em;
+}
+
+/* Shown while the structured \`ask\` block is still streaming in. */
+.followup-pending {
+  font-size: 14px;
+  font-weight: 380;
+  color: var(--Grey-600);
+  letter-spacing: 0.01em;
+  font-style: italic;
+  font-family: 'Saans TRIAL', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}

@@ -1,0 +1,4 @@
+service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date
+340.0.1,1,1,1,1,1,0,0,20260504,20260823
+340.0.2,0,0,0,0,0,1,0,20260504,20260823
+340.0.3,0,0,0,0,0,0,1,20260504,20260823

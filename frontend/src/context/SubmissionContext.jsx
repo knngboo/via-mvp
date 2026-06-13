@@ -2,27 +2,38 @@ import { useState } from 'react';
 import '../styles/SubmissionContext.css';
 
 const AGENCY_OPTIONS = [
-  { value: 'accept',  label: 'Accept suggested classification' },
-  { value: 'reject',  label: 'Reject suggested classification' },
-  { value: 'manual',  label: 'Request manual review' },
+  { value: 'accept', label: 'Accept suggested classification' },
+  { value: 'reject', label: 'Reject suggested classification' },
+  { value: 'manual', label: 'Request manual review' },
 ];
 
 export default function SubmissionContext({ isOpen, onClose, onSubmit, fileName }) {
   const [step, setStep] = useState(1);
+  const [step1Error, setStep1Error] = useState('');
   const [form, setForm] = useState({
-    projectName:    '',
-    description:    '',
-    dataDomain:     '',
-    coverageStart:  '',
-    coverageEnd:    '',
-    ongoing:        false,
+    projectName: '',
+    description: '',
+    dataDomain: '',
+    coverageStart: '',
+    coverageEnd: '',
+    ongoing: false,
     agencyResponse: 'accept',
-    permissionAck:  false,
+    permissionAck: false,
   });
 
   if (!isOpen) return null;
 
   const set = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
+
+  // Step 1 validation: project name is required before proceeding
+  const handleNext = () => {
+    if (!form.projectName.trim()) {
+      setStep1Error('Project Name is required.');
+      return;
+    }
+    setStep1Error('');
+    setStep(2);
+  };
 
   const handleSubmit = () => onSubmit(form);
 
@@ -41,7 +52,7 @@ export default function SubmissionContext({ isOpen, onClose, onSubmit, fileName 
             <div className="sc-step-dot">
               {step > 1 && (
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12"/>
+                  <polyline points="20 6 9 17 4 12" />
                 </svg>
               )}
             </div>
@@ -63,7 +74,7 @@ export default function SubmissionContext({ isOpen, onClose, onSubmit, fileName 
               <label className="sc-label">Project Name</label>
               <input
                 className="sc-input"
-                placeholder="Housing"
+                placeholder="Transit Operations"
                 value={form.projectName}
                 onChange={e => set('projectName', e.target.value)}
               />
@@ -73,7 +84,7 @@ export default function SubmissionContext({ isOpen, onClose, onSubmit, fileName 
               <label className="sc-label">Submission Description</label>
               <textarea
                 className="sc-textarea"
-                placeholder="This is housing"
+                placeholder="Route 7 APC Data"
                 rows={3}
                 value={form.description}
                 onChange={e => set('description', e.target.value)}
@@ -84,7 +95,7 @@ export default function SubmissionContext({ isOpen, onClose, onSubmit, fileName 
               <label className="sc-label">Data Domain</label>
               <input
                 className="sc-input"
-                placeholder="BFI"
+                placeholder="VIA Transit"
                 value={form.dataDomain}
                 onChange={e => set('dataDomain', e.target.value)}
               />
@@ -101,7 +112,7 @@ export default function SubmissionContext({ isOpen, onClose, onSubmit, fileName 
                     onChange={e => set('coverageStart', e.target.value)}
                   />
                   <svg className="sc-date-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
                   </svg>
                 </div>
               </div>
@@ -115,7 +126,7 @@ export default function SubmissionContext({ isOpen, onClose, onSubmit, fileName 
                     onChange={e => set('coverageEnd', e.target.value)}
                   />
                   <svg className="sc-date-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
                   </svg>
                 </div>
               </div>
@@ -131,7 +142,13 @@ export default function SubmissionContext({ isOpen, onClose, onSubmit, fileName 
               <span>Ongoing/ continuously updated</span>
             </label>
 
-            <button className="sc-next-btn" onClick={() => setStep(2)}>
+            {step1Error && (
+              <p role="alert" style={{ color: '#CB2128', fontSize: '13px', margin: '-4px 0 8px', fontWeight: 500 }}>
+                {step1Error}
+              </p>
+            )}
+
+            <button className="sc-next-btn" onClick={handleNext}>
               Next
             </button>
           </div>
@@ -153,7 +170,7 @@ export default function SubmissionContext({ isOpen, onClose, onSubmit, fileName 
                   ))}
                 </select>
                 <svg className="sc-select-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <polyline points="6 9 12 15 18 9"/>
+                  <polyline points="6 9 12 15 18 9" />
                 </svg>
               </div>
             </div>
@@ -176,13 +193,21 @@ export default function SubmissionContext({ isOpen, onClose, onSubmit, fileName 
                   checked={form.permissionAck}
                   onChange={e => set('permissionAck', e.target.checked)}
                 />
-                <span>BFI may use this dataset for AI or machine learning model training.</span>
+                <span>VIA may use this dataset for AI or machine learning model training.</span>
               </label>
             </div>
 
             <div className="sc-step2-actions">
               <button className="sc-back-btn" onClick={() => setStep(1)}>Back</button>
-              <button className="sc-submit-btn" onClick={handleSubmit}>Submit</button>
+              <button
+                className="sc-submit-btn"
+                onClick={handleSubmit}
+                disabled={!form.permissionAck}
+                title={!form.permissionAck ? 'You must acknowledge the permissions statement to submit.' : ''}
+                style={{ opacity: form.permissionAck ? 1 : 0.5, cursor: form.permissionAck ? 'pointer' : 'not-allowed' }}
+              >
+                Submit
+              </button>
             </div>
           </div>
         )}

@@ -17,7 +17,21 @@ const ChevronDown = () => (
 
 export default function ClarificationPage() {
   const navigate = useNavigate();
-  const { batchFiles, setBatchFiles } = useCsv();
+  // batchFiles doesn't exist in CsvContext — derive the flat file list from 'batches'
+  const { batches, setBatches } = useCsv();
+  const batchFiles = batches.flatMap(b => b.files);
+  const setBatchFiles = (updater) => {
+    setBatches(prev => {
+      const flatUpdated = typeof updater === 'function'
+        ? updater(prev.flatMap(b => b.files))
+        : updater;
+      // Rebuild batches preserving batch structure, updating files by id
+      return prev.map(batch => ({
+        ...batch,
+        files: batch.files.map(f => flatUpdated.find(u => u.id === f.id) || f),
+      }));
+    });
+  };
 
   const [viewMode, setViewMode]         = useState('grid');
   const [typeFilter, setTypeFilter]     = useState('all');

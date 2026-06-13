@@ -1,14 +1,13 @@
 import React, { useContext } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthContext, AuthProvider } from './context/AuthContext';
+import { AuthContext } from './context/AuthContext';
 import { CsvProvider } from './context/CsvContext';
-
+import './App.css';
+import PluginDashboardPage from './components/PluginDashboardPage';
 import Login from './pages/Login';
+import Register from './pages/Register';
 import ChatPage from './pages/ChatPage';
-import SourcesPage from './pages/hub/SourcesPage';
-import QueuePage from './pages/hub/QueuePage';
-import ClarificationPage from './pages/hub/ClarificationPage';
-import SuccessPage from './pages/hub/SuccessPage';
+import UploadPage from './pages/hub/UploadPage';
 
 const ProtectedRoute = ({ children }) => {
     const context = useContext(AuthContext);
@@ -16,23 +15,31 @@ const ProtectedRoute = ({ children }) => {
     return context.token ? children : <Navigate to="/login" />;
 };
 
+const AdminRoute = ({ children }) => {
+    const context = useContext(AuthContext);
+    if (!context) return <Navigate to="/login" />;
+    if (!context.token) return <Navigate to="/login" />;
+    if (context.user?.role !== 'admin') return <Navigate to="/chat" />;
+    return children;
+};
+
 const App = () => {
     return (
-        <AuthProvider>
-            <CsvProvider>
-                <Router>
-                    <Routes>
-                        <Route path="/login" element={<Login />} />
-                        <Route path="/dashboard" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
-                        <Route path="/sources" element={<ProtectedRoute><SourcesPage /></ProtectedRoute>} />
-                        <Route path="/queue" element={<ProtectedRoute><QueuePage /></ProtectedRoute>} />
-                        <Route path="/clarification" element={<ProtectedRoute><ClarificationPage /></ProtectedRoute>} />
-                        <Route path="/success" element={<ProtectedRoute><SuccessPage /></ProtectedRoute>} />
-                        <Route path="/" element={<Navigate to="/dashboard" />} />
-                    </Routes>
-                </Router>
-            </CsvProvider>
-        </AuthProvider>
+        <CsvProvider>
+            <Router>
+                <Routes>
+                    <Route path="/login"     element={<Login />} />
+                    <Route path="/register"  element={<Register />} />
+                    <Route path="/chat"      element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
+                    <Route path="/dashboard" element={<ProtectedRoute><PluginDashboardPage /></ProtectedRoute>} />
+                    {/* All data hub paths unified at /sources */}
+                    <Route path="/sources"   element={<AdminRoute><UploadPage /></AdminRoute>} />
+                    <Route path="/queue"     element={<Navigate to="/sources" replace />} />
+                    <Route path="/upload"    element={<Navigate to="/sources" replace />} />
+                    <Route path="/"          element={<Navigate to="/chat" />} />
+                </Routes>
+            </Router>
+        </CsvProvider>
     );
 };
 

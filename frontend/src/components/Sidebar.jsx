@@ -1,6 +1,7 @@
 import React, { useContext, useState } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { useNavigate, useLocation } from 'react-router-dom';
+import SettingsModal from './SettingsModal';
 
 // import all the legacy icons you copied over earlier!
 //
@@ -25,7 +26,10 @@ const Sidebar = () => {
         localStorage.setItem('via_sidebar_expanded', !expanded);
     };
 
+    const [settingsOpen, setSettingsOpen] = useState(false);
+
     return (
+        <>
         <div style={{
             width: expanded ? '200px' : '70px',
             backgroundColor: 'var(--grey-50)',
@@ -104,6 +108,19 @@ const Sidebar = () => {
                 )}
 
                 <button
+                    onClick={() => setSettingsOpen(true)}
+                    style={{
+                        display: 'flex', alignItems: 'center', gap: '12px', padding: '10px',
+                        backgroundColor: 'transparent', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', color: 'var(--grey-700)',
+                        justifyContent: expanded ? 'flex-start' : 'center', width: '100%'
+                    }}
+                    title="Settings"
+                >
+                    <span style={{ fontSize: '20px' }}>⚙️</span>
+                    {expanded && <span style={{ whiteSpace: 'nowrap' }}>Settings</span>}
+                </button>
+
+                <button
                     onClick={logout}
                     style={{
                         padding: '8px',
@@ -114,12 +131,15 @@ const Sidebar = () => {
                         width: '100%',
                         color: 'var(--grey-900)'
                     }}
+
                     title="Sign Out"
                 >
                     {expanded ? 'Sign Out' : 'Out'}
                 </button>
             </div>
         </div>
+        {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+        </>
     );
 };
 

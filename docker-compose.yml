@@ -16,10 +16,12 @@ services:
     build:
       context: ./backend
     ports:
-      - "5001:5001"
+      - "127.0.0.1:5001:5001"
     volumes:
       - ./backend:/app
       - /app/node_modules
+    env_file:
+      - ./backend/.env
     environment:
       - POSTGRES_USER=admin
       - POSTGRES_PASSWORD=admin
@@ -38,7 +40,7 @@ services:
       - pg_data:/var/lib/postgresql/data
       - ./backend/db/init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: [ "CMD", "pg_isready", "-d", "via_mvp", "-U", "admin" ]
       interval: 5s

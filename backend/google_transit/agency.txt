@@ -1,0 +1,2 @@
+agency_id,agency_name,agency_url,agency_timezone,agency_lang,agency_phone,agency_fare_url
+60011,VIA Metropolitan Transit,http://www.viainfo.net,America/Chicago,en,,http://www.viainfo.net/rates

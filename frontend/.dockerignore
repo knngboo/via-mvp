@@ -1,0 +1,5 @@
+# Exclude these from the Docker build context to keep image build fast
+node_modules
+dist
+.DS_Store
+*.local

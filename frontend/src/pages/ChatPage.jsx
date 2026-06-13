@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import MapView from '../components/MapView';
 import ChartView from '../components/ChartView';
 import FeedbackBubble from '../components/FeedbackBubble';
-import Sidebar from '../components/Sidebar';
+import AppSidebar from '../components/AppSidebar';
 import { useAuth } from '../context/AuthContext';
 import bfiIcon from '../assets/images/BFI_LogoIcon.svg';
 import downloadIcon from '../assets/images/iconoir_download.svg';
@@ -15,7 +15,7 @@ import moreHorizIcon from '../assets/images/Icons=More_Horizontal.svg';
 import suiteChartsIcon from '../assets/images/SuiteIcons-Charts.svg';
 import suiteDataIcon from '../assets/images/SuiteIcons-Data.svg';
 import suiteMapsIcon from '../assets/images/SuiteIcons-Maps.svg';
-import { fetchGeoData, fetchIndicators, fetchProfile } from '../services/dataService';
+
 
 // Inline SVG icons for the sidebar
 const IconEdit = () => (
@@ -102,11 +102,7 @@ function ChatPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { token } = useAuth();
-  const [geoData, setGeoData] = useState(null);
-  const [indicators, setIndicators] = useState([]);
-  const [profiles, setProfiles] = useState({});
-  const [selectedArea, setSelectedArea] = useState(null);
-  const [customData, setCustomData] = useState(null);
+
   const [highlightData, setHighlightData] = useState(() => _getStoredActive().highlightData || null);
   const [chartData, setChartData] = useState(() => _getStoredActive().chartData || null);
   const lastChartDataRef = useRef(null);
@@ -125,6 +121,7 @@ function ChatPage() {
   const [chatHistory, setChatHistory] = useState(() => _getStoredActive().chatHistory || []);
   const [savedConversations, setSavedConversations] = useState(_getStoredSaved);
   const [activeConvId, setActiveConvId] = useState(() => _getStoredActive().id || Date.now());
+  const [favorited, setFavorited] = useState(() => Boolean(_getStoredActive().favorited));
   const [convSwitcherOpen, setConvSwitcherOpen] = useState(false);
   const [chatDotsOpen, setChatDotsOpen] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
@@ -140,13 +137,7 @@ function ChatPage() {
   const undoTimerRef = useRef(null);
   const prevTokenRef = useRef(token);
 
-  // Read initial query from URL ?q= param
-  const initialQuery = useMemo(() => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get('q') || '';
-  }, []);
-
-  // Close dots dropdown on outside click
+  // Handle navigation from sidebar (Switch and New Chat)
   useEffect(() => {
     if (location.state?.newConv) {
       handleNewConversation();
@@ -155,6 +146,72 @@ function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state?.newConv]);
 
+  useEffect(() => {
+    const targetId = location.state?.switchConvId;
+    if (!targetId) return;
+    if (targetId === activeConvId) {
+      navigate('/chat', { replace: true, state: {} });
+      return;
+    }
+    const target = savedConversations.find(c => c.id === targetId);
+    if (target) {
+      handleSwitchConversation(target);
+    }
+    navigate('/chat', { replace: true, state: {} });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state?.switchConvId]);
+
+  // Handle custom events dispatched from AppSidebar
+  useEffect(() => {
+    const handler = (e) => {
+      const { action, id, payload } = (e && e.detail) || {};
+      if (!action || id == null) return;
+      const isActive = id === activeConvId;
+      if (action === 'toggle-favorite') {
+        if (isActive) {
+          setFavorited(f => !f);
+        } else {
+          setSavedConversations(prev =>
+            prev.map(c => c.id === id ? { ...c, favorited: !c.favorited } : c)
+          );
+        }
+      } else if (action === 'rename') {
+        const title = ((payload && payload.title) || '').trim();
+        if (!title) return;
+        if (isActive) {
+          setMapTitle(title);
+        } else {
+          setSavedConversations(prev =>
+            prev.map(c => c.id === id ? { ...c, mapTitle: title } : c)
+          );
+        }
+      } else if (action === 'delete') {
+        if (isActive) {
+          setActiveConvId(Date.now());
+          setChatHistory([]);
+          setMapTitle('New conversation');
+          setHighlightData(null);
+          setChartData(null);
+          setChartType('bar');
+          setLastQuery('');
+          setLastBotResponse('');
+          setFavorited(false);
+        } else {
+          setSavedConversations(prev => prev.filter(c => c.id !== id));
+        }
+      }
+    };
+    window.addEventListener('buffi:conv-action', handler);
+    return () => window.removeEventListener('buffi:conv-action', handler);
+  }, [activeConvId]);
+
+  // Read initial query from URL ?q= param (for shared links)
+  const initialQuery = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('q') || '';
+  }, []);
+
+  // Close dots dropdown on outside click
   useEffect(() => {
     if (!dotsOpen) return;
     const handler = (e) => {
@@ -183,10 +240,10 @@ function ChatPage() {
   useEffect(() => {
     try {
       localStorage.setItem('buffi_active_conv', JSON.stringify({
-        id: activeConvId, chatHistory, mapTitle, highlightData, chartData, chartType, lastQuery, lastBotResponse,
+        id: activeConvId, chatHistory, mapTitle, highlightData, chartData, chartType, lastQuery, lastBotResponse, favorited,
       }));
     } catch { }
-  }, [activeConvId, chatHistory, mapTitle, highlightData, chartData, chartType, lastQuery, lastBotResponse]);
+  }, [activeConvId, chatHistory, mapTitle, highlightData, chartData, chartType, lastQuery, lastBotResponse, favorited]);
 
   // Clear any previously persisted conversation whenever auth changes.
   // This prevents one user's chat from leaking to the next user after logout/login.
@@ -207,6 +264,7 @@ function ChatPage() {
       setChartType('bar');
       setLastQuery('');
       setLastBotResponse('');
+      setFavorited(false);
       setTableOpen(false);
       setVizPanelOpen(false);
       setVizPickerOpen(false);
@@ -252,22 +310,7 @@ function ChatPage() {
     if (chartData) lastChartDataRef.current = chartData;
   }, [chartData]);
 
-  useEffect(() => {
-    fetchGeoData().then(setGeoData);
-    fetchIndicators().then(data => {
-      setIndicators(data);
-      const map = {};
-      data.forEach(d => (map[d.areaId] = d.value));
-      setProfiles(prev => ({ ...prev, map }));
-    });
-  }, []);
 
-  const handleAreaClick = id => {
-    fetchProfile(id).then(profile => {
-      setProfiles(prev => ({ ...prev, [id]: profile }));
-      setSelectedArea(id);
-    });
-  };
 
   const handleDownload = async () => {
     if (!panelRef.current || isLoading) return;
@@ -343,7 +386,13 @@ function ChatPage() {
     setChartType('bar');
     setLastQuery('');
     setLastBotResponse('');
+    setFavorited(false);
     setTableOpen(false);
+    setChatDotsOpen(false);
+  };
+
+  const handleToggleFavorite = () => {
+    setFavorited(f => !f);
     setChatDotsOpen(false);
   };
 
@@ -399,7 +448,7 @@ function ChatPage() {
 
   const saveCurrentConv = () => {
     if (chatHistory.length === 0) return;
-    const snapshot = { id: activeConvId, chatHistory, highlightData, chartData, chartType, lastQuery, lastBotResponse, mapTitle };
+    const snapshot = { id: activeConvId, chatHistory, highlightData, chartData, chartType, lastQuery, lastBotResponse, mapTitle, favorited };
     setSavedConversations(prev => {
       const idx = prev.findIndex(c => c.id === activeConvId);
       if (idx >= 0) return prev.map((c, i) => i === idx ? snapshot : c);
@@ -417,6 +466,7 @@ function ChatPage() {
     setLastQuery('');
     setLastBotResponse('');
     setMapTitle('New conversation');
+    setFavorited(false);
     setConvSwitcherOpen(false);
   };
 
@@ -431,6 +481,7 @@ function ChatPage() {
     setLastQuery(conv.lastQuery || '');
     setLastBotResponse(conv.lastBotResponse || '');
     setMapTitle(conv.mapTitle || 'New conversation');
+    setFavorited(Boolean(conv.favorited));
     setVizPanelOpen(false);
     setConvSwitcherOpen(false);
   };
@@ -489,13 +540,29 @@ function ChatPage() {
       {/* 3 vertical columns — each owns its header + body so borders always align */}
 
       {/* Column 1: Sidebar */}
-      <Sidebar />
+      <AppSidebar />
 
       {/* Column 2: Chat */}
       <div className="col-chat">
         <div className="col-header col-header--chat">
           <img src={bfiIcon} alt="Buffi" className="chat-header-logo" />
-          <span className="top-bar-brand">Buffi V.02</span>
+          <span className="top-bar-brand">
+            {isRenaming ? (
+              <input
+                className="map-title-input"
+                value={renameValue}
+                autoFocus
+                onChange={e => setRenameValue(e.target.value)}
+                onBlur={handleConfirmRename}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') handleConfirmRename();
+                  if (e.key === 'Escape') setIsRenaming(false);
+                }}
+              />
+            ) : (
+              mapTitle === 'New conversation' ? 'Buffi V.02' : mapTitle
+            )}
+          </span>
           <div className="chat-dots-wrapper" ref={chatDotsRef}>
             {!vizPanelOpen && (
               <button className="viz-empty-btn" onClick={() => setVizPickerOpen(true)}>
@@ -511,6 +578,14 @@ function ChatPage() {
             </button>
             {chatDotsOpen && (
               <div className="chat-dots-dropdown">
+                <button
+                  className="chat-dots-item"
+                  onClick={handleToggleFavorite}
+                  disabled={!chatHistory.length}
+                >
+                  {favorited ? 'Remove from favorites' : 'Add to favorites'}
+                </button>
+                <div className="chat-dots-divider" />
                 <button
                   className="chat-dots-item"
                   onClick={handleClearConversation}
@@ -760,9 +835,7 @@ function ChatPage() {
                     </div>
                     <div className="viz-map-body">
                       <MapView
-                        geoData={geoData}
-                        params={customData || profiles.map}
-                        onAreaClick={handleAreaClick}
+
                         highlightData={highlightData}
                         viewMode={viewMode}
                       />

@@ -1,11 +1,20 @@
-// ZipMap.jsx
-import React, { useEffect, useState } from "react";
-import { MapContainer, TileLayer, GeoJSON, Circle, Marker, Popup } from "react-leaflet";
+// MapView.jsx
+import React, { useEffect, useState, useRef } from "react";
+import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import * as turf from '@turf/turf';
-import md5 from 'md5'; // for hashing
-import L from 'leaflet'; // for divIcon
 import "../styles/MapView.css"
+
+// H-2: Escape all dynamic values inserted into Leaflet bindPopup() innerHTML.
+// Leaflet renders popup content as raw HTML, so unescaped AI-derived strings
+// (MSAG_Name, name, etc.) could execute injected scripts.
+const escapeHtml = (s) =>
+  String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 
 const targetZips = [
   "78201", "78202", "78203", "78204", "78205", "78206", "78207", "78208",
@@ -22,11 +31,40 @@ const targetZips = [
 ];
 
 const mapCenter = [29.4252, -98.4946]; // Downtown San Antonio
+const EMPTY_ARRAY = [];
 
-export default function ZipMap({ highlightData, viewMode }) {
+export default function ZipMap({ highlightData = EMPTY_ARRAY, viewMode = 'district' }) {
+  const mapRef = useRef(null);
+  const mapInstance = useRef(null);
+  const geoJsonLayer = useRef(null);
+  const circleLayers = useRef(L.layerGroup());
+  
   const [zipData, setZipData] = useState(null);
-  const [zipCounts, setZipCounts] = useState({}); // NEW
+  const [zipCounts, setZipCounts] = useState({});
 
+  // Initialize Map
+  useEffect(() => {
+    if (!mapRef.current || mapInstance.current) return;
+    
+    mapInstance.current = L.map(mapRef.current, {
+      center: mapCenter,
+      zoom: 9,
+      scrollWheelZoom: false
+    });
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(mapInstance.current);
+
+    circleLayers.current.addTo(mapInstance.current);
+
+    return () => {
+      mapInstance.current?.remove();
+      mapInstance.current = null;
+    };
+  }, []);
+
+  // Fetch GeoJSON
   useEffect(() => {
     fetch("/data/tx_zips.geojson")
       .then((res) => res.json())
@@ -38,10 +76,11 @@ export default function ZipMap({ highlightData, viewMode }) {
           ),
         };
         setZipData(filtered);
-      });
+      })
+      .catch(err => console.error("Failed to load map data", err));
   }, []);
 
-  // Aggregate highlightData points to ZIPs using turf.js
+  // Aggregate Data
   useEffect(() => {
     if (viewMode === 'district' && zipData && highlightData && Array.isArray(highlightData)) {
       const counts = {};
@@ -65,119 +104,113 @@ export default function ZipMap({ highlightData, viewMode }) {
     }
   }, [highlightData, zipData, viewMode]);
 
-  const highlightedZips = new Set(Object.keys(zipCounts));
+  // Render GeoJSON
+  useEffect(() => {
+    if (!mapInstance.current || !zipData) return;
 
-  const style = (feature) => {
-    if (viewMode !== 'district') return { color: '#1E90FF', weight: 1.5, fillOpacity: 0.3 };
-    const zip = feature.properties.ZCTA5CE10 || feature.properties.ZIP || feature.properties.zip;
-    if (highlightedZips.has(String(zip))) {
-      return {
-        color: "#FF4500",
-        weight: 3,
-        fillOpacity: 0.7,
+    if (geoJsonLayer.current) {
+      geoJsonLayer.current.remove();
+      geoJsonLayer.current = null;
+    }
+
+    if (viewMode === 'district') {
+      const highlightedZips = new Set(Object.keys(zipCounts));
+
+      const style = (feature) => {
+        const zip = feature.properties.ZCTA5CE10 || feature.properties.ZIP || feature.properties.zip;
+        if (highlightedZips.has(String(zip))) {
+          return { color: "#FF4500", weight: 3, fillOpacity: 0.7 };
+        }
+        return { color: "#1E90FF", weight: 1.5, fillOpacity: 0.3 };
       };
-    }
-    return {
-      color: "#1E90FF",
-      weight: 1.5,
-      fillOpacity: 0.3,
-    };
-  };
 
-  const onEachFeature = (feature, layer) => {
-    const zip = feature.properties.ZCTA5CE10 || feature.properties.ZIP || feature.properties.zip;
-  
-    let zipHTML = `<div class="popup-zip">ZIP Code: <strong>${zip}</strong></div>`;
-    let countHTML = '';
-    let streetsHTML = '';
-  
-    if (viewMode === 'district' && zipCounts[zip]) {
-      countHTML = `<div class="popup-count">Total Count: <strong>${zipCounts[zip]}</strong></div>`;
-  
-      if (highlightData && Array.isArray(highlightData)) {
-        const pointsInZip = highlightData.filter((d) => {
-          if (d.Latitude && d.Longitude) {
-            const pt = turf.point([parseFloat(d.Longitude), parseFloat(d.Latitude)]);
-            return turf.booleanPointInPolygon(pt, feature);
+      const onEachFeature = (feature, layer) => {
+        const zip = feature.properties.ZCTA5CE10 || feature.properties.ZIP || feature.properties.zip;
+      
+        let zipHTML = `<div class="popup-zip">ZIP Code: <strong>${escapeHtml(zip)}</strong></div>`;
+        let countHTML = '';
+        let streetsHTML = '';
+      
+        if (zipCounts[zip]) {
+          countHTML = `<div class="popup-count">Total Count: <strong>${escapeHtml(zipCounts[zip])}</strong></div>`;
+      
+          if (highlightData && Array.isArray(highlightData)) {
+            const pointsInZip = highlightData.filter((d) => {
+              if (d.Latitude && d.Longitude) {
+                const pt = turf.point([parseFloat(d.Longitude), parseFloat(d.Latitude)]);
+                return turf.booleanPointInPolygon(pt, feature);
+              }
+              return false;
+            });
+      
+            const streetCounts = {};
+            pointsInZip.forEach((d) => {
+              const street = d.MSAG_Name || d.name || d.Sensitive || 'Unknown';
+              streetCounts[street] = (streetCounts[street] || 0) + (d.count || 1);
+            });
+      
+            streetsHTML = `<div class="popup-streets"><strong>Street Breakdown:</strong><ul>`;
+            Object.entries(streetCounts).forEach(([street, count]) => {
+              streetsHTML += `<li>${escapeHtml(street)}: ${escapeHtml(count)}</li>`;
+            });
+            streetsHTML += `</ul></div>`;
           }
-          return false;
+        }
+      
+        layer.bindPopup(`
+          <div class="custom-popup">
+            ${zipHTML}
+            ${countHTML}
+            ${streetsHTML}
+          </div>
+        `, { className: "my-custom-popup" });
+      
+        layer.on({
+          mouseover: (e) => {
+            e.target.setStyle({ weight: 3, color: "#FFD700", fillOpacity: 0.6 });
+          },
+          mouseout: (e) => {
+            geoJsonLayer.current.resetStyle(e.target);
+          },
         });
-  
-        const streetCounts = {};
-        pointsInZip.forEach((d) => {
-          const street = d.MSAG_Name || d.name || d.Sensitive || 'Unknown';
-          streetCounts[street] = (streetCounts[street] || 0) + (d.count || 1);
-        });
-  
-        streetsHTML = `<div class="popup-streets"><strong>Street Breakdown:</strong><ul>`;
-        Object.entries(streetCounts).forEach(([street, count]) => {
-          streetsHTML += `<li>${street}: ${count}</li>`;
-        });
-        streetsHTML += `</ul></div>`;
-      }
+      };
+
+      geoJsonLayer.current = L.geoJSON(zipData, { style, onEachFeature }).addTo(mapInstance.current);
     }
-  
-    layer.bindPopup(`
-      <div class="custom-popup">
-        ${zipHTML}
-        ${countHTML}
-        ${streetsHTML}
-      </div>
-    `, {className:"my-custom-popup"
-    });
-  
-    layer.on({
-      mouseover: (e) => {
-        e.target.setStyle({
-          weight: 3,
-          color: "#FFD700",
-          fillOpacity: 0.6,
-        });
-      },
-      mouseout: (e) => {
-        e.target.setStyle(style(feature));
-      },
-    });
-  };
-  
+  }, [zipData, zipCounts, viewMode, highlightData]);
 
-  // Generate a unique key for GeoJSON to force re-render on highlightData/viewMode change
-  const geoJsonKey = md5(JSON.stringify({ zipCounts, viewMode }));
+  // Render Circles
+  useEffect(() => {
+    if (!mapInstance.current) return;
+    
+    circleLayers.current.clearLayers();
 
-  return (
-    <MapContainer center={mapCenter} zoom={9} scrollWheelZoom={false} style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}>
-      <TileLayer
-        attribution='&copy; OpenStreetMap contributors'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
-      {zipData && viewMode === 'district' && (
-        <>
-          <GeoJSON key={geoJsonKey} data={zipData} style={style} onEachFeature={onEachFeature} />
-        </>
-      )}
-      {highlightData && Array.isArray(highlightData) && viewMode === 'circle' && highlightData.map((d, i) => {
+    if (viewMode === 'circle' && highlightData && Array.isArray(highlightData)) {
+      highlightData.forEach(d => {
         if (d.Latitude && d.Longitude) {
           const color = d.color || '#FF0000';
           const radius = d.marker_radius || 12;
           const label = d.count || d.Count || d.complaint_count || d.value || 1;
-          return (
-            <Circle
-              key={i}
-              center={[d.Latitude, d.Longitude]}
-              radius={radius * 10}
-              pathOptions={{ color, fillColor: color, fillOpacity: 0.7 }}
-            >
-              <Popup className="my-custom-popup">
-                <div>
-                  <div><strong>{d.MSAG_Name || d.name || d.Sensitive || 'Highlighted Location'}</strong></div>
-                  <div>Count: <strong>{label}</strong></div>
-                </div>
-              </Popup>
-            </Circle>
-          );
+          
+          const circle = L.circle([parseFloat(d.Latitude), parseFloat(d.Longitude)], {
+            radius: radius * 10,
+            color,
+            fillColor: color,
+            fillOpacity: 0.7
+          });
+
+          circle.bindPopup(`
+            <div class="my-custom-popup">
+              <div><strong>${escapeHtml(d.MSAG_Name || d.name || d.Sensitive || 'Highlighted Location')}</strong></div>
+              <div>Count: <strong>${escapeHtml(label)}</strong></div>
+            </div>
+          `);
+
+          circleLayers.current.addLayer(circle);
         }
-        return null;
-      })}
-    </MapContainer>
-  );
+      });
+    }
+  }, [highlightData, viewMode]);
+
+  return <div ref={mapRef} style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 0 }}></div>;
 }

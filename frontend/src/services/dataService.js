@@ -1,35 +1,29 @@
-// using public hardcoded files in public folder
+// Safe data fetching that won't crash if the mock files are missing
 import axios from 'axios';
 
 export async function fetchGeoData() {
-  const res = await axios.get('/geo.json'); // From /public
-  return res.data;
+  try {
+    const res = await axios.get('/geo.json');
+    return res.data;
+  } catch (error) {
+    return { type: 'FeatureCollection', features: [] }; // Fallback Map
+  }
 }
 
 export async function fetchIndicators() {
-  const res = await axios.get('/indicators.json'); // From /public
-  return res.data;
+  try {
+    const res = await axios.get('/indicators.json');
+    return Array.isArray(res.data) ? res.data : [];
+  } catch (error) {
+    return []; // Fallback Data Array
+  }
 }
 
 export async function fetchProfile(areaId) {
-  const res = await axios.get(`/profiles/${areaId}.json`);
-  return res.data;
+  try {
+    const res = await axios.get(`/profiles/${areaId}.json`);
+    return res.data;
+  } catch (error) {
+    return {};
+  }
 }
-
-
-// import axios from 'axios';
-
-// export async function fetchGeoData() {
-//   const res = await axios.get('/path/to/geojson'); 
-//   return res.data;
-// }
-
-// export async function fetchIndicators() {
-//   const res = await axios.get('/api/indicators');
-//   return res.data;
-// }
-
-// export async function fetchProfile(areaId) {
-//   const res = await axios.get(`/api/profiles/${areaId}`);
-//   return res.data;
-// }
