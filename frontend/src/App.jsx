@@ -8,6 +8,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import ChatPage from './pages/ChatPage';
 import UploadPage from './pages/hub/UploadPage';
+import AdminPage from './pages/AdminPage';
 
 const ProtectedRoute = ({ children }) => {
     const context = useContext(AuthContext);
@@ -23,6 +24,30 @@ const AdminRoute = ({ children }) => {
     return children;
 };
 
+const EditorRoute = ({ children }) => {
+    const context = useContext(AuthContext);
+    if (!context) return <Navigate to="/login" />;
+    if (!context.user) return <Navigate to="/login" />;
+    if (!['admin', 'editor'].includes(context.user?.role)) return <Navigate to="/chat" />;
+    return children;
+};
+
+const AnalyzerRoute = ({ children }) => {
+    const context = useContext(AuthContext);
+    if (!context) return <Navigate to="/login" />;
+    if (!context.user) return <Navigate to="/login" />;
+    if (!['admin', 'analyzer', 'editor'].includes(context.user?.role)) return <Navigate to="/chat" />;
+    return children;
+};
+
+const ViewerRoute = ({ children }) => {
+    const context = useContext(AuthContext);
+    if (!context) return <Navigate to="/login" />;
+    if (!context.user) return <Navigate to="/login" />;
+    if (!['admin', 'viewer', 'editor', 'analyzer'].includes(context.user?.role)) return <Navigate to="/login" />;
+    return children;
+};
+
 const App = () => {
     return (
         <CsvProvider>
@@ -30,10 +55,12 @@ const App = () => {
                 <Routes>
                     <Route path="/login"     element={<Login />} />
                     <Route path="/register"  element={<Register />} />
-                    <Route path="/chat"      element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
+                    <Route path="/chat"      element={<AnalyzerRoute><ChatPage /></AnalyzerRoute>} />
                     <Route path="/dashboard" element={<ProtectedRoute><PluginDashboardPage /></ProtectedRoute>} />
-                    {/* All data hub paths unified at /sources */}
-                    <Route path="/sources"   element={<AdminRoute><UploadPage /></AdminRoute>} />
+                    {/* Upload restricted to editors and admins */}
+                    <Route path="/sources"   element={<EditorRoute><UploadPage /></EditorRoute>} />
+                    {/* Admin panel for managing users */}
+                    <Route path="/admin"     element={<AdminRoute><AdminPage /></AdminRoute>} />
                     <Route path="/queue"     element={<Navigate to="/sources" replace />} />
                     <Route path="/upload"    element={<Navigate to="/sources" replace />} />
                     <Route path="/"          element={<Navigate to="/chat" />} />
@@ -43,4 +70,5 @@ const App = () => {
     );
 };
 
+export { ProtectedRoute, AdminRoute, EditorRoute, AnalyzerRoute, ViewerRoute };
 export default App;

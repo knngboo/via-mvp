@@ -2,8 +2,9 @@ import { Router } from 'express';
 import multer from 'multer';
 import csv from 'csvtojson';
 
-// Accept requireAdmin middleware injected from server.js
-export default function (pool, requireAdmin) {
+// Accept role middlewares injected from server.js
+export default function (pool, middlewares) {
+    const { requireAdmin, requireEditor, requireAnalyzer, requireViewer } = middlewares;
     const router = Router();
 
     // File upload limits and MIME type validation
@@ -45,8 +46,8 @@ export default function (pool, requireAdmin) {
     `))
     .catch(err => console.error('Failed to initialise sources_meta table:', err));
 
-    // Upload a CSV — requires admin role (requireAdmin checks JWT on the backend)
-    router.post('/', requireAdmin, upload.single('file'), async (req, res) => {
+    // Upload a CSV — editors and admins can upload
+    router.post('/', requireEditor, upload.single('file'), async (req, res) => {
         if (!req.file) {
             return res.status(400).json({ message: 'No file uploaded.' });
         }
@@ -128,20 +129,24 @@ export default function (pool, requireAdmin) {
             }
 
             // 4. Save metadata to sources_meta — inside the same transaction
+            // Track user_id and set default visibility (editors can make data shared)
+            const visibility = req.user?.role === 'admin' ? 'shared' : 'private';
             const metaResult = await client.query(`
-                INSERT INTO bfi.sources_meta (name, table_name, size, num_rows, columns)
-                VALUES ($1, $2, $3, $4, $5)
+                INSERT INTO bfi.sources_meta (user_id, name, table_name, size, num_rows, columns, visibility)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
                 ON CONFLICT (table_name) DO UPDATE
                     SET name = EXCLUDED.name, size = EXCLUDED.size,
                         num_rows = EXCLUDED.num_rows, columns = EXCLUDED.columns,
                         uploaded_at = CURRENT_TIMESTAMP
                 RETURNING id;
             `, [
+                req.user?.id,
                 req.file.originalname,
                 tableName,
                 req.file.size,
                 rows.length,
-                JSON.stringify(columns)
+                JSON.stringify(columns),
+                visibility
             ]);
 
             await client.query('COMMIT');
@@ -167,32 +172,46 @@ export default function (pool, requireAdmin) {
         }
     });
 
-    // List all uploaded sources (metadata) — any authenticated user can view
-    router.get('/', async (req, res) => {
+    // List all uploaded sources (metadata) — respects visibility and user role
+    router.get('/', requireViewer, async (req, res) => {
         const SAFE_SCHEMA = /^[a-z][a-z0-9_]{0,62}$/;
         const tenant = SAFE_SCHEMA.test(req.user?.tenant) ? req.user.tenant : 'bfi';
         try {
-            const result = await pool.query(
-                `SELECT * FROM ${tenant}.sources_meta ORDER BY uploaded_at DESC`
-            );
+            // Admins see all sources; others see only shared sources + their own
+            const query = req.user?.role === 'admin'
+                ? `SELECT * FROM ${tenant}.sources_meta ORDER BY uploaded_at DESC`
+                : `SELECT * FROM ${tenant}.sources_meta 
+                   WHERE visibility = 'shared' OR user_id = $1 
+                   ORDER BY uploaded_at DESC`;
+            
+            const result = req.user?.role === 'admin'
+                ? await pool.query(query)
+                : await pool.query(query, [req.user?.id]);
+            
             res.json(result.rows);
         } catch (error) {
             res.status(500).json({ message: error.message });
         }
     });
 
-    // Delete a source — requires admin role
-    router.delete('/:id', requireAdmin, async (req, res) => {
+    // Delete a source — admins can delete any, editors can delete their own
+    router.delete('/:id', requireEditor, async (req, res) => {
         const SAFE_SCHEMA = /^[a-z][a-z0-9_]{0,62}$/;
         const tenant = SAFE_SCHEMA.test(req.user?.tenant) ? req.user.tenant : 'bfi';
         try {
             const id = parseInt(req.params.id, 10);
             if (isNaN(id)) return res.status(400).json({ message: 'Invalid source id.' });
 
-            const metaResult = await pool.query(`SELECT table_name FROM ${tenant}.sources_meta WHERE id = $1`, [id]);
+            const metaResult = await pool.query(`SELECT table_name, user_id FROM ${tenant}.sources_meta WHERE id = $1`, [id]);
             if (metaResult.rows.length === 0) {
                 return res.status(404).json({ message: 'Source not found.' });
             }
+            
+            // Check permissions: admin can delete anything, editor can only delete their own
+            if (req.user?.role !== 'admin' && metaResult.rows[0].user_id !== req.user?.id) {
+                return res.status(403).json({ error: 'You can only delete your own sources.' });
+            }
+            
             const tableName = metaResult.rows[0].table_name;
 
             // Drop table and metadata in a transaction

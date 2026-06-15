@@ -295,7 +295,31 @@ const requireAdmin = (req, res, next) => {
     next();
 };
 
-app.post('/api/chat/stream', authenticateToken, chatLimiter, async (req, res) => {
+// editor-only middleware — can upload and manage their own data
+const requireEditor = (req, res, next) => {
+    if (!['admin', 'editor'].includes(req.user?.role)) {
+        return res.status(403).json({ error: 'Editor role required.' });
+    }
+    next();
+};
+
+// analyzer-only middleware — can run queries and view data
+const requireAnalyzer = (req, res, next) => {
+    if (!['admin', 'analyzer', 'editor'].includes(req.user?.role)) {
+        return res.status(403).json({ error: 'Analyzer or Editor role required.' });
+    }
+    next();
+};
+
+// viewer-only middleware — can view but not edit
+const requireViewer = (req, res, next) => {
+    if (!['admin', 'viewer', 'editor', 'analyzer'].includes(req.user?.role)) {
+        return res.status(403).json({ error: 'Access denied.' });
+    }
+    next();
+};
+
+app.post('/api/chat/stream', authenticateToken, requireAnalyzer, chatLimiter, async (req, res) => {
     const { message, history, model: requestedModel } = req.body;
 
     if (!message) {
@@ -338,7 +362,7 @@ app.post('/api/chat/stream', authenticateToken, chatLimiter, async (req, res) =>
 });
 
 // Data Upload Route — requireAdmin enforces server-side RBAC (not just client-side)
-app.use('/api/sources', authenticateToken, sourcesRouter(pool, requireAdmin));
+app.use('/api/sources', authenticateToken, sourcesRouter(pool, { requireAdmin, requireEditor, requireAnalyzer, requireViewer }));
 
 // C5: Feedback — authenticated users can flag bad AI responses
 app.post('/api/feedback', authenticateToken, async (req, res) => {
@@ -383,6 +407,54 @@ app.get('/api/plugins', authenticateToken, async (req, res) => {
 
 // GTFS Stats Route
 app.use('/api/stats', authenticateToken, statsRouter(pool));
+
+// Role Management — Admins can list users and change roles
+app.get('/api/admin/users', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const result = await pool.query(
+            'SELECT id, username, user_role, created_at FROM users ORDER BY created_at DESC'
+        );
+        res.json(result.rows);
+    } catch (error) {
+        logger.error({ err: error }, 'users fetch failed');
+        res.status(500).json({ error: 'Failed to fetch users.' });
+    }
+});
+
+// Update user role — admins only
+app.patch('/api/admin/users/:id/role', authenticateToken, requireAdmin, async (req, res) => {
+    const { role } = req.body;
+    const VALID_ROLES = ['admin', 'editor', 'analyzer', 'viewer'];
+    
+    if (!role || !VALID_ROLES.includes(role)) {
+        return res.status(400).json({ error: `Invalid role. Must be one of: ${VALID_ROLES.join(', ')}` });
+    }
+    
+    try {
+        const userId = parseInt(req.params.id, 10);
+        if (isNaN(userId)) return res.status(400).json({ error: 'Invalid user id.' });
+        
+        // Prevent self-demotion from admin
+        if (userId === req.user.id && role !== 'admin') {
+            return res.status(403).json({ error: 'Cannot demote yourself from admin role.' });
+        }
+        
+        const result = await pool.query(
+            'UPDATE users SET user_role = $1 WHERE id = $2 RETURNING id, username, user_role',
+            [role, userId]
+        );
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'User not found.' });
+        }
+        
+        logger.info({ userId, newRole: role, adminId: req.user.id }, 'User role updated');
+        res.json(result.rows[0]);
+    } catch (error) {
+        logger.error({ err: error }, 'role update failed');
+        res.status(500).json({ error: 'Failed to update role.' });
+    }
+});
 
 app.listen(PORT, () => {
     console.log(`backend listening on port ${PORT}`);

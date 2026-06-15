@@ -52,17 +52,21 @@ CREATE SCHEMA IF NOT EXISTS bfi;
 --
 CREATE TABLE IF NOT EXISTS bfi.sources_meta (
     id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
     name VARCHAR(255) NOT NULL,
     table_name VARCHAR(255) UNIQUE NOT NULL,
     status VARCHAR(50) DEFAULT 'Ready',
     size BIGINT,
     num_rows INT,
     columns JSONB,
-    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    visibility VARCHAR(20) DEFAULT 'private'
 );
 
 -- Performance indexes on platform tables
 CREATE INDEX IF NOT EXISTS idx_sources_meta_uploaded ON bfi.sources_meta(uploaded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sources_meta_user ON bfi.sources_meta(user_id);
+CREATE INDEX IF NOT EXISTS idx_sources_meta_visibility ON bfi.sources_meta(visibility);
 
 -- Plugin registry: which plugins each tenant has access to.
 -- A plugin maps to a folder in frontend/src/Plugins/<id>/.
