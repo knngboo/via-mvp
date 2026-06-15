@@ -353,7 +353,7 @@ def chat_stream():
 
     # Run the (blocking) tool-calling loop first, then stream the final answer.
     try:
-        messages, map_payload = prepare_chat(message, safe_history, tenant, model, api_key=client_key)
+        messages, viz = prepare_chat(message, safe_history, tenant, model, api_key=client_key)
     except MaxToolRoundsError:
         return jsonify({"error": "Buffi exceeded maximum reasoning steps."}), 500
     except Exception as error:
@@ -361,11 +361,14 @@ def chat_stream():
         return jsonify({"error": "AI request failed."}), 500
 
     def generate():
-        # If a map tool produced points, emit them first as a custom SSE event
+        # If a map/chart tool produced output, emit it first as custom SSE events
         # the frontend recognises (it ignores events without choices[].delta).
+        map_payload = viz.get("map")
         if map_payload and map_payload.get("points"):
-            event = "data: " + json.dumps({"buffi_map": map_payload}) + "\n\n"
-            yield event.encode("utf-8")
+            yield ("data: " + json.dumps({"buffi_map": map_payload}) + "\n\n").encode("utf-8")
+        chart_payload = viz.get("chart")
+        if chart_payload and chart_payload.get("chartData"):
+            yield ("data: " + json.dumps({"buffi_chart": chart_payload}) + "\n\n").encode("utf-8")
         try:
             yield from stream_openai(messages, model, api_key=client_key)
         except Exception as error:

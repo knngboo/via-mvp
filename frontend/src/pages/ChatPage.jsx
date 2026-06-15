@@ -110,6 +110,7 @@ function ChatPage() {
   const [chartType, setChartType] = useState(() => _getStoredActive().chartType || 'bar');
   const [mapTitle, setMapTitle] = useState(() => _getStoredActive().mapTitle || 'New conversation');
   const [viewMode] = useState('circle');
+  const [liveBuses, setLiveBuses] = useState(null); // { active, routeId } when live bus feed is on
   const [isLoading, setIsLoading] = useState(false);
   const [lastQuery, setLastQuery] = useState(() => _getStoredActive().lastQuery || '');
   const [lastBotResponse, setLastBotResponse] = useState(() => _getStoredActive().lastBotResponse || '');
@@ -191,6 +192,7 @@ function ChatPage() {
           setChatHistory([]);
           setMapTitle('New conversation');
           setHighlightData(null);
+          setLiveBuses(null);
           setChartData(null);
           setChartType('bar');
           setLastQuery('');
@@ -329,6 +331,7 @@ function ChatPage() {
 
     setMapTitle('New conversation');
     setHighlightData(null);
+    setLiveBuses(null);
     handleSetChartData(null);
     setTableOpen(false);
     setVizPanelOpen(false);
@@ -352,6 +355,7 @@ function ChatPage() {
     setChatHistory([]);
     setMapTitle('New conversation');
     setHighlightData(null);
+    setLiveBuses(null);
     setChartData(null);
     setChartType('bar');
     setLastQuery('');
@@ -435,6 +439,7 @@ function ChatPage() {
     setActiveConvId(Date.now());
     setChatHistory([]);
     setHighlightData(null);
+    setLiveBuses(null);
     setChartData(null);
     setChartType('bar');
     setLastQuery('');
@@ -450,6 +455,7 @@ function ChatPage() {
     setActiveConvId(conv.id);
     setChatHistory(conv.chatHistory);
     setHighlightData(conv.highlightData || null);
+    setLiveBuses(null);
     setChartData(conv.chartData || null);
     setChartType(conv.chartType || 'bar');
     setLastQuery(conv.lastQuery || '');
@@ -594,6 +600,7 @@ function ChatPage() {
             setHighlightData={setHighlightData}
             setChartData={handleSetChartData}
             restoreChartData={setChartData}
+            setLiveBuses={setLiveBuses}
             setMapTitle={setMapTitle}
             chartType={chartType}
             setChartType={setChartType}
@@ -809,9 +816,9 @@ function ChatPage() {
                     </div>
                     <div className="viz-map-body">
                       <MapView
-
                         highlightData={highlightData}
                         viewMode={viewMode}
+                        liveBuses={liveBuses}
                       />
                     </div>
                   </div>

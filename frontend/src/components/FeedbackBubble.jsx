@@ -39,7 +39,7 @@ function deriveMaptitle(userText) {
 
 
 
-export default function FeedbackBubble({ setHighlightData, setChartData, restoreChartData, setMapTitle, chartType, setChartType, openVisualizationPanel, setIsLoading, setLastQuery, setLastBotResponse, initialQuery, chatHistory, setChatHistory }) {
+export default function FeedbackBubble({ setHighlightData, setChartData, restoreChartData, setMapTitle, chartType, setChartType, openVisualizationPanel, setIsLoading, setLastQuery, setLastBotResponse, initialQuery, chatHistory, setChatHistory, setLiveBuses }) {
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingPhase, setLoadingPhase] = useState(1);
@@ -119,6 +119,7 @@ export default function FeedbackBubble({ setHighlightData, setChartData, restore
     let placeholderAdded = false;
     let fullAnswer = '';
     let mapPayload = null;
+    let chartPayload = null;
 
     try {
       const apiKey = getStoredApiKey();
@@ -169,7 +170,20 @@ export default function FeedbackBubble({ setHighlightData, setChartData, restore
                 const pts = json.buffi_map.points || [];
                 if (setHighlightData) setHighlightData(pts);
                 if (json.buffi_map.title && setMapTitle) setMapTitle(json.buffi_map.title);
+                // live=true keeps the map auto-refreshing the live bus feed.
+                if (setLiveBuses) {
+                  setLiveBuses(json.buffi_map.live ? { active: true, routeId: json.buffi_map.route_id || null } : null);
+                }
                 if (openVisualizationPanel) openVisualizationPanel('map');
+                continue;
+              }
+
+              // Custom event from Buffi's make_chart tool: render a chart.
+              if (json.buffi_chart) {
+                chartPayload = json.buffi_chart;
+                if (setChartData) setChartData(json.buffi_chart.chartData);
+                if (json.buffi_chart.chartType && setChartType) setChartType(json.buffi_chart.chartType);
+                if (openVisualizationPanel) openVisualizationPanel();
                 continue;
               }
 
@@ -191,18 +205,27 @@ export default function FeedbackBubble({ setHighlightData, setChartData, restore
         }
       }
 
-      // Attach any map produced by Buffi to the bot message so it persists and
-      // restores when the conversation is reopened.
-      if (mapPayload && mapPayload.points && mapPayload.points.length) {
+      // Attach any visualization Buffi produced to the bot message so it
+      // persists and restores when the conversation is reopened.
+      const hasMap = mapPayload && mapPayload.points && mapPayload.points.length;
+      const hasChart = chartPayload && chartPayload.chartData;
+      if (hasMap || hasChart) {
         setChatHistory(prev => {
           const next = [...prev];
-          const existing = next[botIdx] || { from: 'bot', text: fullAnswer || 'Here is the map you asked for.' };
-          next[botIdx] = {
-            ...existing,
-            savedHighlightData: mapPayload.points,
-            savedTitle: mapPayload.title || existing.savedTitle,
-            mapTag: true,
-          };
+          const existing = next[botIdx] || { from: 'bot', text: fullAnswer || 'Here is the visualization you asked for.' };
+          const patch = { ...existing };
+          if (hasMap) {
+            patch.savedHighlightData = mapPayload.points;
+            patch.savedTitle = mapPayload.title || existing.savedTitle;
+            patch.mapTag = true;
+            if (mapPayload.live) patch.liveBuses = { active: true, routeId: mapPayload.route_id || null };
+          }
+          if (hasChart) {
+            patch.savedChartData = chartPayload.chartData;
+            patch.savedChartType = chartPayload.chartType || 'bar';
+            patch.chartTag = true;
+          }
+          next[botIdx] = patch;
           return next;
         });
       }
@@ -339,6 +362,8 @@ export default function FeedbackBubble({ setHighlightData, setChartData, restore
     if (msg.savedHighlightData && setHighlightData) setHighlightData(msg.savedHighlightData);
     else if (setHighlightData) setHighlightData(null);
     if (msg.savedTitle && setMapTitle) setMapTitle(msg.savedTitle);
+    // Re-enable the live bus feed if this message was a live-buses view.
+    if (setLiveBuses) setLiveBuses(mode === 'map' && msg.liveBuses ? msg.liveBuses : null);
     if (openVisualizationPanel) openVisualizationPanel();
   };
 

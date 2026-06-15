@@ -19,9 +19,11 @@ import glob
 import os
 
 import requests
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 
 from google.transit import gtfs_realtime_pb2
+
+import db
 
 GTFS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "google_transit")
 VIA_RED = "#CB2128"
@@ -62,8 +64,35 @@ def _translated(translated_string):
     return ""
 
 
+def _fill_route_ids(vehicles):
+    """Backfill empty route_ids by joining each vehicle's trip_id to the trips table.
+
+    VIA's vehicle feed often leaves trip.route_id blank but populates trip_id, so
+    we resolve the route from the scheduled GTFS data we already imported.
+    """
+    missing_trips = sorted({
+        v["trip_id"] for v in vehicles if not v.get("route_id") and v.get("trip_id")
+    })
+    if not missing_trips:
+        return
+    try:
+        rows = db.query(
+            "SELECT trip_id, route_id FROM trips WHERE trip_id = ANY(%s)",
+            (missing_trips,),
+        )
+        trip_to_route = {r["trip_id"]: r["route_id"] for r in rows}
+        for v in vehicles:
+            if not v.get("route_id"):
+                v["route_id"] = trip_to_route.get(v.get("trip_id"), "")
+    except Exception as e:
+        print("realtime: route_id backfill failed:", e)
+
+
 def get_vehicle_positions(limit=1000):
-    """Live vehicle positions: list of {id, route_id, trip_id, latitude, longitude, ...}."""
+    """Live vehicle positions: list of {id, route_id, trip_id, latitude, longitude, ...}.
+
+    route_id is resolved from the GTFS trips table when the realtime feed omits it.
+    """
     feed = _load_feed("VIA_VEHICLE_POSITIONS_URL", "vehiclepositions*.pb")
     if feed is None:
         return []
@@ -89,6 +118,8 @@ def get_vehicle_positions(limit=1000):
         })
         if len(out) >= limit:
             break
+
+    _fill_route_ids(out)
     return out
 
 
@@ -121,8 +152,50 @@ def get_service_alerts(limit=100):
     return out
 
 
+def get_trip_updates(limit=1000):
+    """Real-time trip updates: per-trip stop arrival/departure delays.
+
+    Returns a list of {id, trip_id, route_id, vehicle_id, timestamp,
+    stop_time_updates: [{stop_id, stop_sequence, arrival_delay, departure_delay}]}.
+    route_id is backfilled from the GTFS trips table when the feed omits it.
+    """
+    feed = _load_feed("VIA_TRIP_UPDATES_URL", "tripupdates*.pb")
+    if feed is None:
+        return []
+
+    out = []
+    for ent in feed.entity:
+        if not ent.HasField("trip_update"):
+            continue
+        tu = ent.trip_update
+        stops = []
+        for stu in tu.stop_time_update:
+            stops.append({
+                "stop_id": stu.stop_id,
+                "stop_sequence": stu.stop_sequence if stu.HasField("stop_sequence") else None,
+                "arrival_delay": stu.arrival.delay if stu.HasField("arrival") else None,
+                "departure_delay": stu.departure.delay if stu.HasField("departure") else None,
+            })
+        out.append({
+            "id": ent.id,
+            "trip_id": tu.trip.trip_id,
+            "route_id": tu.trip.route_id,
+            "vehicle_id": tu.vehicle.id if tu.HasField("vehicle") else "",
+            "timestamp": tu.timestamp or feed.header.timestamp,
+            "stop_time_updates": stops[:100],
+        })
+        if len(out) >= limit:
+            break
+
+    _fill_route_ids(out)
+    return out
+
+
 def vehicles_as_map_points(vehicles):
-    """Convert vehicle dicts into MapView's highlightData point format."""
+    """Convert vehicle dicts into MapView's highlightData point format.
+
+    kind='bus' tells MapView to render a bus icon instead of a circle.
+    """
     points = []
     for v in vehicles:
         lat, lon = v.get("latitude"), v.get("longitude")
@@ -133,11 +206,11 @@ def vehicles_as_map_points(vehicles):
             "Latitude": lat,
             "Longitude": lon,
             "name": "Route {} • Bus {}".format(route, v.get("label") or v.get("id") or ""),
+            "kind": "bus",
             "route_id": route,
             "vehicle_id": v.get("id"),
             "bearing": v.get("bearing"),
             "color": VIA_RED,
-            "marker_radius": 6,
         })
     return points
 
@@ -149,10 +222,17 @@ def create_realtime_blueprint():
     def vehicles():
         try:
             data = get_vehicle_positions()
-            return jsonify({"count": len(data), "vehicles": data})
+            route_filter = (request.args.get("route_id") or "").strip()
+            if route_filter:
+                data = [v for v in data if str(v.get("route_id")) == route_filter]
+            return jsonify({
+                "count": len(data),
+                "vehicles": data,
+                "points": vehicles_as_map_points(data),
+            })
         except Exception as e:
             print("realtime vehicles error:", e)
-            return jsonify({"count": 0, "vehicles": []})
+            return jsonify({"count": 0, "vehicles": [], "points": []})
 
     @bp.route("/alerts", methods=["GET"])
     def alerts():
@@ -162,5 +242,17 @@ def create_realtime_blueprint():
         except Exception as e:
             print("realtime alerts error:", e)
             return jsonify({"count": 0, "alerts": []})
+
+    @bp.route("/trip-updates", methods=["GET"])
+    def trip_updates():
+        try:
+            data = get_trip_updates()
+            route_filter = (request.args.get("route_id") or "").strip()
+            if route_filter:
+                data = [t for t in data if str(t.get("route_id")) == route_filter]
+            return jsonify({"count": len(data), "trip_updates": data})
+        except Exception as e:
+            print("realtime trip-updates error:", e)
+            return jsonify({"count": 0, "trip_updates": []})
 
     return bp

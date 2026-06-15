@@ -119,9 +119,16 @@ You answer questions about transit data and any data the agency has uploaded.
 TOOLS AVAILABLE:
 - run_query  → Write and run any read-only SQL SELECT against the database. Use this for nearly all data questions.
 - predict_route_ridership → Forecast future ridership using linear regression on historical data.
+- make_chart → Build a bar, pie, or radar chart from a SQL query. Use this whenever the answer is best shown as a graph (rankings, distributions, counts, comparisons, trends).
 - plot_on_map → Plot geographic points on the San Antonio map. Give it a SELECT that returns latitude and longitude columns (e.g. stop_lat/stop_lon from public.stops). Use this whenever the user asks to see, show, map, or locate things geographically.
 - show_live_buses → Plot VIA's live vehicle positions (real-time GTFS feed) on the map. Use when the user asks where buses are right now, live locations, or vehicle tracking.
 - get_service_alerts → Read VIA's current real-time service alerts (detours, delays). Use when the user asks about alerts, disruptions, or service changes.
+- get_trip_updates → Read VIA's real-time trip updates (per-trip arrival/departure delays). Use when the user asks how late/on-time buses are, delays, or schedule adherence.
+
+ANALYTICS & CHARTS:
+- When the user asks to analyze, compare, rank, break down, or chart data, call make_chart with a SELECT that returns one label column (x) and one numeric column (y).
+- Choose chart_type: 'bar' for rankings/counts/comparisons, 'pie' for share-of-total, 'radar' for multi-metric profiles. Default to 'bar'.
+- Keep charts to ~15 rows max (use ORDER BY ... LIMIT). Always also explain the insight in your text answer.
 
 MAPPING:
 - When a question is geographic ("where", "show me on a map", "locations of", "nearest"), prefer plot_on_map or show_live_buses so the user gets a visual.
@@ -162,6 +169,40 @@ TOOLS = [
                     }
                 },
                 "required": ["sql"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "make_chart",
+            "description": "Render a chart (bar/pie/radar) from a read-only SELECT. The query should return a label column and a numeric value column.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "sql": {
+                        "type": "string",
+                        "description": "A PostgreSQL SELECT returning a label column and a numeric value column. Must start with SELECT.",
+                    },
+                    "x": {
+                        "type": "string",
+                        "description": "Column name for the category/label axis (e.g. route_short_name).",
+                    },
+                    "y": {
+                        "type": "string",
+                        "description": "Column name for the numeric value (e.g. trips).",
+                    },
+                    "chart_type": {
+                        "type": "string",
+                        "enum": ["bar", "pie", "radar"],
+                        "description": "Chart style. Default 'bar'.",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "A short chart title.",
+                    },
+                },
+                "required": ["sql", "x", "y"],
             },
         },
     },
@@ -209,6 +250,23 @@ TOOLS = [
             "name": "get_service_alerts",
             "description": "Read VIA's current real-time service alerts (detours, delays, disruptions).",
             "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_trip_updates",
+            "description": "Read VIA's real-time trip updates — per-trip arrival/departure delays (schedule adherence). Optionally filter to a single route_id.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "route_id": {
+                        "type": "string",
+                        "description": "Optional GTFS route_id to filter to (e.g. '100'). Omit for all trips.",
+                    },
+                },
+                "required": [],
+            },
         },
     },
     {
@@ -320,7 +378,7 @@ def _rows_to_map_points(rows):
 # ---------------------------------------------------------------------------
 # Tool executor
 # ---------------------------------------------------------------------------
-def run_tool(tenant, name, args, map_sink=None):
+def run_tool(tenant, name, args, viz=None):
     # ── run_query ──────────────────────────────────────────────────────────
     if name == "run_query":
         sql = (args.get("sql") or "").strip()
@@ -333,6 +391,42 @@ def run_tool(tenant, name, args, map_sink=None):
             "data": rows[:MAX_ROWS],
         }
 
+    # ── make_chart ─────────────────────────────────────────────────────────
+    if name == "make_chart":
+        sql = (args.get("sql") or "").strip()
+        rows, err = _run_readonly_select(tenant, sql)
+        if err:
+            return {"error": err}
+        if not rows:
+            return {"charted": 0, "note": "The query returned no rows to chart."}
+        x = args.get("x")
+        y = args.get("y")
+        cols = list(rows[0].keys())
+        if x not in cols or y not in cols:
+            return {"error": "x ('{}') and y ('{}') must both be columns in the result ({}).".format(x, y, cols)}
+        chart_type = args.get("chart_type") if args.get("chart_type") in ("bar", "pie", "radar") else "bar"
+        # Coerce the value column to numbers so the chart renders.
+        data = []
+        for r in rows[:50]:
+            row = dict(r)
+            try:
+                row[y] = float(row[y])
+            except (TypeError, ValueError):
+                continue
+            data.append(row)
+        if not data:
+            return {"error": "The y column '{}' is not numeric.".format(y)}
+        chart_data = {
+            "title": args.get("title") or "Chart",
+            "xKey": x,
+            "yKey": y,
+            "data": data,
+        }
+        if viz is not None:
+            viz["chart"] = {"chartData": chart_data, "chartType": chart_type}
+        return {"charted": len(data), "chart_type": chart_type, "title": chart_data["title"],
+                "note": "A {} chart is now shown to the user.".format(chart_type)}
+
     # ── plot_on_map ────────────────────────────────────────────────────────
     if name == "plot_on_map":
         sql = (args.get("sql") or "").strip()
@@ -344,9 +438,8 @@ def run_tool(tenant, name, args, map_sink=None):
             return {"error": "The query returned no latitude/longitude columns. Include lat/lon (e.g. stop_lat, stop_lon)."}
         if not points:
             return {"plotted": 0, "note": "No mappable rows were returned."}
-        if map_sink is not None:
-            map_sink["points"] = points
-            map_sink["title"] = args.get("title") or "Map"
+        if viz is not None:
+            viz["map"] = {"points": points, "title": args.get("title") or "Map"}
         return {"plotted": len(points), "title": args.get("title") or "Map",
                 "note": "Points are now shown on the map for the user."}
 
@@ -360,13 +453,14 @@ def run_tool(tenant, name, args, map_sink=None):
         if route_filter:
             vehicles = [v for v in vehicles if str(v.get("route_id")) == route_filter]
         points = realtime.vehicles_as_map_points(vehicles)
-        if map_sink is not None and points:
-            map_sink["points"] = points
-            map_sink["title"] = "Live buses" + (" — route {}".format(route_filter) if route_filter else "")
+        title = "Live buses" + (" — route {}".format(route_filter) if route_filter else "")
+        if viz is not None and points:
+            # live=True tells the frontend to keep polling and auto-refresh markers.
+            viz["map"] = {"points": points, "title": title, "live": True, "route_id": route_filter or None}
         return {
             "vehicle_count": len(points),
-            "title": "Live buses" + (" — route {}".format(route_filter) if route_filter else ""),
-            "note": "Live vehicle positions are now shown on the map." if points else "No live vehicles found.",
+            "title": title,
+            "note": "Live vehicle positions are now shown on the map (auto-refreshing)." if points else "No live vehicles found.",
         }
 
     # ── get_service_alerts ─────────────────────────────────────────────────
@@ -376,6 +470,37 @@ def run_tool(tenant, name, args, map_sink=None):
         except Exception as e:
             return {"error": "Could not read the alerts feed: {}".format(e)}
         return {"alert_count": len(alerts), "alerts": alerts[:25]}
+
+    # ── get_trip_updates ───────────────────────────────────────────────────
+    if name == "get_trip_updates":
+        try:
+            updates = realtime.get_trip_updates()
+        except Exception as e:
+            return {"error": "Could not read the trip updates feed: {}".format(e)}
+        route_filter = (args.get("route_id") or "").strip()
+        if route_filter:
+            updates = [u for u in updates if str(u.get("route_id")) == route_filter]
+
+        # Summarise delays per trip so the response stays compact for the model.
+        summary = []
+        all_delays = []
+        for u in updates:
+            delays = [s["departure_delay"] for s in u["stop_time_updates"]
+                      if s.get("departure_delay") is not None]
+            all_delays.extend(delays)
+            summary.append({
+                "trip_id": u["trip_id"],
+                "route_id": u["route_id"],
+                "max_departure_delay_sec": max(delays) if delays else None,
+                "stops_reported": len(u["stop_time_updates"]),
+            })
+        summary.sort(key=lambda s: (s["max_departure_delay_sec"] or 0), reverse=True)
+        avg_delay = round(sum(all_delays) / len(all_delays)) if all_delays else None
+        return {
+            "trip_count": len(updates),
+            "avg_departure_delay_sec": avg_delay,
+            "most_delayed": summary[:15],
+        }
 
     # ── predict_route_ridership ────────────────────────────────────────────
     if name == "predict_route_ridership":
@@ -544,10 +669,11 @@ def prepare_chat(user_message, history=None, tenant="bfi", model=DEFAULT_MODEL, 
     """
     Build context and run the (non-streaming) tool-calling loop.
 
-    Returns a tuple (messages, map_payload):
-      - messages    : the message list to stream the final answer from
-      - map_payload : {"points": [...], "title": str} if a map tool produced
-                      points to render, else None
+    Returns a tuple (messages, viz):
+      - messages : the message list to stream the final answer from
+      - viz      : dict that may contain "map" ({points, title, live?, route_id?})
+                   and/or "chart" ({chartData, chartType}) for the frontend to
+                   render. Empty dict if no visualization was produced.
 
     Raises MaxToolRoundsError if the model never settles on a text answer.
     `api_key`, when provided, is a user-supplied key that overrides the env var.
@@ -563,22 +689,21 @@ def prepare_chat(user_message, history=None, tenant="bfi", model=DEFAULT_MODEL, 
         messages.append({"role": role, "content": m["text"]})
     messages.append({"role": "user", "content": user_message})
 
-    # Map tools write their points here; the latest non-empty result wins.
-    map_sink = {}
+    # Map/chart tools write their output here; the latest result of each wins.
+    viz = {}
 
     for _ in range(MAX_TOOL_ROUNDS):
         reply = call_openai(messages, model, api_key=api_key)
 
         if not reply or not reply.get("tool_calls"):
-            map_payload = map_sink if map_sink.get("points") else None
-            return messages, map_payload  # ready to stream the final answer
+            return messages, viz  # ready to stream the final answer
 
         messages.append(reply)
 
         for call in reply["tool_calls"]:
             try:
                 args = json.loads(call["function"].get("arguments") or "{}")
-                result = run_tool(tenant, call["function"]["name"], args, map_sink=map_sink)
+                result = run_tool(tenant, call["function"]["name"], args, viz=viz)
             except Exception as err:
                 result = {"error": str(err)}
             messages.append({
