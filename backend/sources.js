@@ -36,13 +36,19 @@ export default function (pool, middlewares) {
     `)
     .then(() => pool.query(`
         ALTER TABLE bfi.sources_meta
-            ADD COLUMN IF NOT EXISTS project_name  VARCHAR(255),
-            ADD COLUMN IF NOT EXISTS description   TEXT,
-            ADD COLUMN IF NOT EXISTS data_domain   VARCHAR(100),
-            ADD COLUMN IF NOT EXISTS coverage_start DATE,
-            ADD COLUMN IF NOT EXISTS coverage_end   DATE,
-            ADD COLUMN IF NOT EXISTS ongoing        BOOLEAN DEFAULT FALSE,
+            ADD COLUMN IF NOT EXISTS user_id         INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS visibility      VARCHAR(20) DEFAULT 'private',
+            ADD COLUMN IF NOT EXISTS project_name    VARCHAR(255),
+            ADD COLUMN IF NOT EXISTS description     TEXT,
+            ADD COLUMN IF NOT EXISTS data_domain     VARCHAR(100),
+            ADD COLUMN IF NOT EXISTS coverage_start  DATE,
+            ADD COLUMN IF NOT EXISTS coverage_end    DATE,
+            ADD COLUMN IF NOT EXISTS ongoing         BOOLEAN DEFAULT FALSE,
             ADD COLUMN IF NOT EXISTS agency_response VARCHAR(50);
+    `))
+    .then(() => pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_sources_meta_user       ON bfi.sources_meta(user_id);
+        CREATE INDEX IF NOT EXISTS idx_sources_meta_visibility ON bfi.sources_meta(visibility);
     `))
     .catch(err => console.error('Failed to initialise sources_meta table:', err));
 
@@ -135,8 +141,12 @@ export default function (pool, middlewares) {
                 INSERT INTO bfi.sources_meta (user_id, name, table_name, size, num_rows, columns, visibility)
                 VALUES ($1, $2, $3, $4, $5, $6, $7)
                 ON CONFLICT (table_name) DO UPDATE
-                    SET name = EXCLUDED.name, size = EXCLUDED.size,
-                        num_rows = EXCLUDED.num_rows, columns = EXCLUDED.columns,
+                    SET name        = EXCLUDED.name,
+                        size        = EXCLUDED.size,
+                        num_rows    = EXCLUDED.num_rows,
+                        columns     = EXCLUDED.columns,
+                        user_id     = EXCLUDED.user_id,
+                        visibility  = EXCLUDED.visibility,
                         uploaded_at = CURRENT_TIMESTAMP
                 RETURNING id;
             `, [
@@ -235,13 +245,27 @@ export default function (pool, middlewares) {
 
     // Update submission context metadata (project name, description, dates, AI consent).
     // Called immediately after a successful upload when the Submission Context modal is submitted.
-    // Requires admin role (same as upload).
-    router.patch('/:id/context', requireAdmin, async (req, res) => {
+    // Editors can update their own uploads; admins can update any.
+    router.patch('/:id/context', requireEditor, async (req, res) => {
         const SAFE_SCHEMA = /^[a-z][a-z0-9_]{0,62}$/;
         const tenant = SAFE_SCHEMA.test(req.user?.tenant) ? req.user.tenant : 'bfi';
         try {
             const id = parseInt(req.params.id, 10);
             if (isNaN(id)) return res.status(400).json({ message: 'Invalid source id.' });
+
+            // Editors can only update their own uploads; admins can update any.
+            if (req.user?.role !== 'admin') {
+                const ownerCheck = await pool.query(
+                    `SELECT user_id FROM ${SAFE_SCHEMA.test(req.user?.tenant) ? req.user.tenant : 'bfi'}.sources_meta WHERE id = $1`,
+                    [id]
+                );
+                if (ownerCheck.rows.length === 0) {
+                    return res.status(404).json({ message: 'Source not found.' });
+                }
+                if (ownerCheck.rows[0].user_id !== req.user?.id) {
+                    return res.status(403).json({ message: 'You can only update your own sources.' });
+                }
+            }
 
             const {
                 projectName,

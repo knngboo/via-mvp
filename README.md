@@ -70,13 +70,14 @@ Then log in at `http://localhost:5173/login`.
 
 ## Application Routes
 
-| URL | Page | Description |
-|-----|------|-------------|
-| `/login` | Login | Authenticate with username + password |
-| `/register` | Register | Create a new account (requires admin secret) |
-| `/chat` | AI Chat | Natural language interface to the transit database |
-| `/dashboard` | VIA Dashboard | Interactive San Antonio transit map + live DB stats |
-| `/sources` | Data Hub | Upload CSVs, browse ingested data, manage sources *(admin only)* |
+| URL | Page | Access | Description |
+|-----|------|--------|-------------|
+| `/login` | Login | Public | Authenticate with username + password |
+| `/register` | Register | Public | Create a new account (requires admin secret) |
+| `/dashboard` | VIA Dashboard | All users | Interactive San Antonio transit map + live DB stats |
+| `/chat` | AI Chat | Analyzer, Editor, Admin | Natural language interface to the transit database |
+| `/sources` | Data Hub | Editor, Admin | Upload CSVs, browse ingested data, manage sources |
+| `/admin` | Admin Panel | Admin only | Manage users and assign roles |
 
 ---
 
@@ -96,8 +97,11 @@ Then log in at `http://localhost:5173/login`.
 - Live stats in the header: Datasets, Routes, Stops, Trips
 - Gracefully handles an empty database — no errors if no data has been uploaded yet
 
-### 📁 Data Hub (`/sources`) — Admin only
+### 📁 Data Hub (`/sources`) — Editor + Admin
 - Drag-and-drop CSV upload with file type and size validation (50 MB max)
+- **Editors** can upload and manage their own sources (marked `private`)
+- **Admins** uploads are automatically marked `shared` and visible to all users
+- Ownership enforced: editors can only delete their own sources; admins can delete any
 - **Submission Context Modal** after upload:
   - **Data Domain** — dropdown with VIA-specific categories (Ridership, Routes, Operations, etc.)
   - **Project Name**, **Description**, **Coverage Dates**
@@ -105,7 +109,6 @@ Then log in at `http://localhost:5173/login`.
 - Live file table synced from PostgreSQL — persists across sessions and restarts
 - Model switcher — toggle between GPT-4o and GPT-4o-mini in the chat settings panel
 
-### 🔐 Security
 - **HttpOnly session cookie** — JWT never accessible to JavaScript. Immune to XSS token theft.
 - All sensitive backend ports bound exclusively to `127.0.0.1`
 - Cookie-based auth enforced on every authenticated API endpoint (`authenticateToken` middleware)
@@ -118,6 +121,23 @@ Then log in at `http://localhost:5173/login`.
 - Message length capped (4,000 chars) and chat history limited to last 20 exchanges per request
 - Vite proxy used for all frontend API calls (no CORS exposure, no backend port visible to browser)
 - **Multer 2.x** — up-to-date file upload handler with resolved CVE-2022-24434
+
+### 🔐 Role-Based Access Control
+
+Four roles enforced on both frontend (route guards) and backend (middleware):
+
+| Role | `/chat` | `/sources` | `/admin` | Can Delete Others' Sources |
+|------|---------|-----------|----------|---------------------------|
+| **admin** | ✅ | ✅ | ✅ | ✅ |
+| **editor** | ✅ | ✅ | ❌ | ❌ (own only) |
+| **analyzer** | ✅ | ❌ | ❌ | ❌ |
+| **viewer** | ❌ | ❌ | ❌ | ❌ |
+
+- Roles are stored in `users.user_role` in the database and embedded in the JWT at login
+- An admin can promote or demote any other user from the `/admin` panel
+- Admins cannot demote themselves (backend enforces this)
+- Role changes take effect on the target user's **next login** (JWT must be refreshed)
+- Source visibility: admin uploads are `shared` (visible to all), editor uploads are `private` (visible only to the uploader and admins)
 
 ---
 

@@ -36,7 +36,7 @@ const AnalyzerRoute = ({ children }) => {
     const context = useContext(AuthContext);
     if (!context) return <Navigate to="/login" />;
     if (!context.user) return <Navigate to="/login" />;
-    if (!['admin', 'analyzer', 'editor'].includes(context.user?.role)) return <Navigate to="/chat" />;
+    if (!['admin', 'analyzer', 'editor'].includes(context.user?.role)) return <Navigate to="/dashboard" replace />;
     return children;
 };
 

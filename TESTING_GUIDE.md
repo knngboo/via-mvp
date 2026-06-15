@@ -82,16 +82,18 @@ Register a fourth account:
 2. **Navigate to `/admin`** (should work ✅)
 3. You should see a table with all 4 users:
    - `admin_user` — role: `admin`
-   - `editor_user` — role: `viewer` (default)
-   - `analyzer_user` — role: `viewer` (default)
-   - `viewer_user` — role: `viewer` (default)
+   - `editor_user` — role: `admin` (all registrations default to admin)
+   - `analyzer_user` — role: `admin`
+   - `viewer_user` — role: `admin`
 
-4. **Change roles:**
-   - Click the dropdown for `editor_user` → select `editor` → changes apply immediately
+4. **Change roles** (use the admin panel dropdowns):
+   - Your own row shows **(you)** and its dropdown is disabled — you cannot demote yourself
+   - Click the dropdown for `editor_user` → select `editor` → changes apply immediately in the DB
    - Click the dropdown for `analyzer_user` → select `analyzer`
-   - Keep `viewer_user` as `viewer`
+   - Click the dropdown for `viewer_user` → select `viewer`
 
-5. **Verify each user sees their new role** (log in as each user, check top-right corner)
+   > ⚠️ **JWT note:** Role changes update the database immediately but the target user's
+   > active session still carries their old role until they **log out and back in**.
 
 ---
 
@@ -112,7 +114,7 @@ Register a fourth account:
 1. **Login as `analyzer_user`**
 2. **Navigate to `/chat`** (should work ✅)
 3. **Logout and login as `viewer_user`**
-4. **Navigate to `/chat`** → should redirect (check browser console for error) ❌
+4. **Navigate to `/chat`** → should redirect to `/dashboard` (viewers cannot use Buffi AI) ❌
 
 ---
 
@@ -179,14 +181,14 @@ Register a fourth account:
 Open DevTools (`F12` or `Cmd+Opt+I`) and paste:
 
 ```javascript
-// Get current user from AuthContext (stored in browser state)
-fetch('/api/me').then(r => r.json()).then(data => console.log('Current user:', data))
+// Get current user cookie name: via_session (HttpOnly — not readable by JS directly)
+// But you can verify your session via:
+fetch('/api/me', { credentials: 'include' }).then(r => r.json()).then(data => console.log('Current user:', data))
 ```
 
 Expected output:
 ```json
 {
-  "id": 2,
   "username": "editor_user",
   "role": "editor"
 }
@@ -341,7 +343,8 @@ Should return sources filtered by visibility and user ownership.
 
 ## 📝 Notes
 
-- All role changes take effect **immediately** (no page refresh needed)
+- Role changes update the database **immediately** but the user's active JWT still carries
+  the old role — they must **log out and back in** for the new role to take effect on the backend
 - Sessions persist across browser refreshes (JWT in HttpOnly cookie)
 - Roles are validated on **both frontend and backend** for security
 - Data visibility is enforced at the **query level** in the database

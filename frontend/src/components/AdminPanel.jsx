@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useAuth } from '../context/AuthContext';
 import './AdminPanel.css';
 
 const ROLE_DESCRIPTIONS = {
@@ -9,6 +10,7 @@ const ROLE_DESCRIPTIONS = {
 };
 
 export default function AdminPanel() {
+    const { user: currentUser } = useAuth();
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -44,7 +46,8 @@ export default function AdminPanel() {
             });
             if (!res.ok) throw new Error('Failed to update role');
             const updated = await res.json();
-            setUsers(users.map(u => u.id === userId ? { ...u, user_role: updated.user_role } : u));
+            // Bug 6 fix: use functional update to avoid stale closure
+            setUsers(prev => prev.map(u => u.id === userId ? { ...u, user_role: updated.user_role } : u));
         } catch (err) {
             setError(err.message);
         } finally {
@@ -69,9 +72,14 @@ export default function AdminPanel() {
                     </tr>
                 </thead>
                 <tbody>
-                    {users.map(user => (
-                        <tr key={user.id} className="admin-user-row">
-                            <td className="admin-username">{user.username}</td>
+                    {users.map(user => {
+                        const isSelf = user.username === currentUser?.username;
+                        return (
+                        <tr key={user.id} className={`admin-user-row${isSelf ? ' admin-self-row' : ''}`}>
+                            <td className="admin-username">
+                                {user.username}
+                                {isSelf && <span className="admin-self-badge"> (you)</span>}
+                            </td>
                             <td className="admin-role">
                                 <span className={`role-badge role-${user.user_role}`}>
                                     {user.user_role}
@@ -81,9 +89,9 @@ export default function AdminPanel() {
                                 <select
                                     value={user.user_role}
                                     onChange={(e) => updateUserRole(user.id, e.target.value)}
-                                    disabled={updatingUserId === user.id}
+                                    disabled={updatingUserId === user.id || isSelf}
                                     className="admin-role-select"
-                                    title={ROLE_DESCRIPTIONS[user.user_role]}
+                                    title={isSelf ? 'You cannot change your own role' : ROLE_DESCRIPTIONS[user.user_role]}
                                 >
                                     <option value="admin">Admin</option>
                                     <option value="editor">Editor</option>
@@ -95,7 +103,8 @@ export default function AdminPanel() {
                                 {new Date(user.created_at).toLocaleDateString()}
                             </td>
                         </tr>
-                    ))}
+                        );
+                    })}
                 </tbody>
             </table>
 

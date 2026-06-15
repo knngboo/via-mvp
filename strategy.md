@@ -1,6 +1,47 @@
 BFI Platform — Product Strategy Notes
 Living document. Last updated: 2026-06-15
 
+────────────────────────────────────────────────────────────
+Meeting Notes — Team Sync (2026-06-15, SOW Presentation)
+────────────────────────────────────────────────────────────
+
+Decisions made in this meeting:
+
+1. PostgreSQL is confirmed. Stop calling it a question.
+   We present it as decided: "We're using Postgres. Here's why it's better than Mongo
+   for structured transit data, schema isolation per client, and long-term auth."
+   VIA does not need to weigh in on this.
+
+2. Python is now confirmed for the backend.
+   The scorpion branch is the Python port of superman and is the direction going forward.
+   Python was chosen for better ML library support and native data tooling (pandas, scikit-learn).
+   Node.js (superman) served as the design prototype — all features now ported to scorpion.
+
+3. The SOW phases are being renamed "components"
+   because phase implies sequential and we're working on them concurrently.
+
+4. Andrew is a coding and data expert.
+   He will want an expert-level data access/export option — not just a pretty chart.
+   We need to make sure he can get raw data out of Buffi in whatever format he needs.
+
+5. VIA has very loose expectations (3 goals: ridership model, forecast, Better Bus analysis).
+   This is our opportunity to push our own recommendation, not just do what they say.
+   Present confidently. Sell the solution.
+
+6. The plugin system was validated by the supervisor.
+   The fact that different clients get their own schema and their own plugin is correct architecture.
+
+7. New question to ask VIA: "When Buffi has processed your data, what is your preferred
+   format for exporting it?" (CSV? API? Their existing DB? Dashboard PDF?)
+   This is the most useful technical question for them to answer.
+
+8. Need recurring meetings with Andrew.
+   Tech team + Andrew should be meeting consistently, not just at milestones.
+
+9. Christine (VIA) has different ideas than what the tech team was thinking.
+   Need to understand her vision vs. Andrew's before the next build sprint.
+
+────────────────────────────────────────────────────────────────────
 ────────────────────────────────────────────
 1. What We Know About the Platform Direction
 ────────────────────────────────────────────
@@ -43,13 +84,26 @@ Better Bus plan data             Unknown              TBD — needs clarificatio
 ⚠️  CAUTION: The Google-sourced GTFS data was previously loaded in dev. Platform now starts blank.
     Any GTFS data used in demos must be the VIA-provided set or uploaded fresh via the Data Hub.
 
-Open Questions for VIA on Data:
-☐  Do you want files stored on BFI's server or your own infrastructure?
-☐  Do you have an existing database you want to connect to Buffi?
-☐  Is the Better Bus plan a document (PDF/slides) or a data file (route/stop tables)?
-☐  Can we use public GTFS feeds from the VIA website directly? (They publish at transitfeeds.com)
-☐  What counts as "private" data vs. data you're okay storing on BFI's platform?
-☐  Do you want your own OpenAI billing account, or is BFI paying for all AI usage?
+Open Questions FOR VIA (things only they can answer)
+
+  DATA
+  ☐ Can VIA provide sample APC/UTA CSV files, GTFS files, and Andrew's cleaned historical ridership data?
+  ☐ Can we use public GTFS feeds from the VIA website / transitfeeds.com, or must we only use files VIA provides?
+  ☐ Will we have access to the UTA portal to automate APC data pulls?
+  ☐ Is the Better Bus plan a document (PDF/slides) or a structured data file (routes/stop tables)?
+  ☐ When Buffi has processed and analyzed your data — what is your preferred format for exporting it?
+      (CSV download? API endpoint? Direct DB connection? Dashboard report?)
+
+  PRODUCT & USERS
+  ☐ What is the expected number of users, and what roles will they serve? (analyst, manager, IT admin?)
+
+  NOTE: These are BFI's decisions — DO NOT ask VIA:
+  ✗ Which database? → PostgreSQL. We decided. We tell them.
+  ✗ JavaScript vs Python? → Our stack, our call. Present as decided.
+  ✗ Where to store files? → BFI server for now. We own this decision.
+  ✗ Which AI model? → OpenAI GPT-4o. Present as decided.
+
+
 
 ──────────────────────────────────────────────────────────
 3. Buffi AI Architecture — What It Is and What's Missing
@@ -86,11 +140,7 @@ ML Exploration Track
 - Real ML models would live as a separate service (Python/scikit-learn or similar)
 - Integration point: a tool call to a /api/predict endpoint backed by a real model
 
-Open Questions on AI:
-☐  Does VIA want to use their own OpenAI account (for billing)?
-☐  Is there interest in non-OpenAI models (Gemini, Claude, local open-source)?
-☐  What is the ML team exploring specifically? (Forecasting? Classification? Something else?)
-☐  Should Buffi be branded differently per agency, or is "Buffi" the universal name?
+
 
 ────────────────────────────────────────────────────────────────────
 4. What "Plugin" Means vs. What "Base Platform" Means
@@ -132,14 +182,13 @@ Status: ✅ DONE
 AI receives schema context and writes its own queries. Replaces hardcoded tool list.
 
 Decision 3: LLM abstraction layer
-Status: ⏳ DEFERRED — pending VIA answer on billing/model preference
-Current: OpenAI hardcoded. Target: Pluggable provider (OpenAI, Gemini, Claude, local).
+Status: ⏳ DEFERRED — BFI's decision, not VIA's. Not blocking anything right now.
+Current: OpenAI GPT-4o hardcoded. This is our stack choice. Present as decided.
 
 Decision 4: Private file storage model
-Status: ⏳ BLOCKED on VIA input
-Current: Files stored in PostgreSQL-backed tables (survive restarts, lost only on `down -v`).
-Target: Persistent volume mount or external object storage (S3, local disk).
-Need: VIA to answer where they want files stored.
+Status: ✅ DECIDED — BFI owns this call.
+Current: PostgreSQL-backed tables on BFI server. This is our recommendation.
+Tell VIA: "Data lives on our server during the program. Export options TBD with you."
 
 ──────────────────────────────────────────────────────
 6. Backlog (Known Work, Not Yet Started)
@@ -158,7 +207,13 @@ Platform
 ✅ Session restore from cookie (/api/me with retry)
 ✅ Per-user namespaced chat history (no cross-account leaking)
 ✅ Submission context tooltips + Data Domain dropdown
-✅ Data Hub admin-only sidebar link
+✅ Data Hub editor+admin gated (was admin-only)
+✅ RBAC — 4 roles (admin/editor/analyzer/viewer), route guards, admin panel
+✅ Ownership tracking on sources (user_id, visibility columns)
+✅ Source visibility filtering (shared vs. private)
+✅ Self-demotion prevention in admin panel (backend + frontend)
+✅ .env untracked from git
+✅ RBAC ported to scorpion Python (app.py, sources.py, frontend)
 
 ☐ Server-side chat history (chat_messages table exists, not wired to any endpoint)
 ☐ Persistent file storage that survives docker volume wipes (S3 / mounted volume)
@@ -170,9 +225,12 @@ Platform
 ☐ Automated DB backup scheduling
 
 Via Plugin
+☐ Data export feature — user can download query results as CSV or get a raw data endpoint
+    (Andrew specifically needs this — he's a data expert, not just a dashboard user)
+☐ APC data pipeline — automated pull from UTA portal (blocked on portal access from VIA)
 ☐ Move VIA system prompt context into plugin manifest (decouple from base platform)
 ☐ VIA GTFS upload flow (formalized — agency uploads their own feed via Data Hub)
-☐ Better Bus plan integration (needs scope clarification from VIA)
+☐ Better Bus plan integration (needs scope clarification from VIA — doc or data file?)
 ☐ Map visualization improvements
 
 Platform Admin
@@ -187,7 +245,22 @@ Infrastructure
 ☐ DB replica / read replica for scale
 
 Strategic / External
-☐ Get VIA answers on: storage preference, billing model, ML scope, Better Bus data format
-☐ Clarify GTFS data licensing (confirm VIA-provided data replaces unofficial source)
-☐ Determine ML team's model plans and integration point
-☐ Define what "Buffi" brand means across agencies (or per-tenant naming)
+☐ Get data from VIA ASAP — we are blocked on APC CSV, GTFS files, ridership data
+☐ Confirm GTFS data licensing (VIA-provided set replaces unofficial Google-sourced data)
+☐ Schedule recurring meetings with Andrew (tech team lead) — weekly or bi-weekly
+☐ Align with Christine (VIA) on her vision vs. what the tech team is building
+☐ Send updated SOW with "components" instead of "phases"
+
+────────────────────────────────────────────────────────────
+Next: scorpion is the active branch
+────────────────────────────────────────────────────────────
+
+The superman branch is now a reference implementation (Node.js/JS).
+All future development happens on scorpion (Python/Flask/PostgreSQL).
+
+Immediate next priorities for scorpion:
+1. ☐ Smoke test the RBAC port — run scorpion via docker compose and verify the 6 test scenarios
+2. ☐ Wire chat_messages table to the chat endpoint (server-side history persistence)
+3. ☐ Implement structured AI response format (chart_data + highlight_data JSON) for ChartView and FeedbackBubble
+4. ☐ Prepare VIA demo with real or seeded data
+5. ☐ Schedule Andrew technical meeting to align on data export format
