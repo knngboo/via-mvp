@@ -4,7 +4,7 @@ import MapView from '../components/MapView';
 import ChartView from '../components/ChartView';
 import FeedbackBubble from '../components/FeedbackBubble';
 import AppSidebar from '../components/AppSidebar';
-import { useAuth } from '../context/AuthContext';
+import { useAuth, userKey } from '../context/AuthContext';
 import bfiIcon from '../assets/images/BFI_LogoIcon.svg';
 import downloadIcon from '../assets/images/iconoir_download.svg';
 import html2canvas from 'html2canvas';
@@ -83,9 +83,10 @@ const IconPieMini = () => (
   </svg>
 );
 
+
 const _getStoredActive = () => {
   try {
-    const data = JSON.parse(localStorage.getItem('buffi_active_conv')) || {};
+    const data = JSON.parse(localStorage.getItem(userKey('active_conv'))) || {};
     if (data.chatHistory) {
       data.chatHistory = data.chatHistory.filter(
         msg => !(msg.from === 'bot' && msg.text && (msg.text.startsWith('Sorry, there was an error') || msg.text.startsWith('Error:')))
@@ -95,13 +96,13 @@ const _getStoredActive = () => {
   } catch { return {}; }
 };
 const _getStoredSaved = () => {
-  try { return JSON.parse(localStorage.getItem('buffi_saved_convs')) || []; } catch { return []; }
+  try { return JSON.parse(localStorage.getItem(userKey('saved_convs'))) || []; } catch { return []; }
 };
 
 function ChatPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { token } = useAuth();
+  const { user } = useAuth();
 
   const [highlightData, setHighlightData] = useState(() => _getStoredActive().highlightData || null);
   const [chartData, setChartData] = useState(() => _getStoredActive().chartData || null);
@@ -135,7 +136,6 @@ function ChatPage() {
   const convSwitcherRef = useRef(null);
   const chatDotsRef = useRef(null);
   const undoTimerRef = useRef(null);
-  const prevTokenRef = useRef(token);
 
   // Handle navigation from sidebar (Switch and New Chat)
   useEffect(() => {
@@ -231,49 +231,19 @@ function ChatPage() {
     return () => document.removeEventListener('mousedown', handler);
   }, [shareOpen]);
 
-  // Persist saved conversations to localStorage
+  // Persist saved conversations to localStorage (namespaced by user)
   useEffect(() => {
-    try { localStorage.setItem('buffi_saved_convs', JSON.stringify(savedConversations)); } catch { }
+    try { localStorage.setItem(userKey('saved_convs'), JSON.stringify(savedConversations)); } catch { }
   }, [savedConversations]);
 
-  // Persist active conversation to localStorage
+  // Persist active conversation to localStorage (namespaced by user)
   useEffect(() => {
     try {
-      localStorage.setItem('buffi_active_conv', JSON.stringify({
+      localStorage.setItem(userKey('active_conv'), JSON.stringify({
         id: activeConvId, chatHistory, mapTitle, highlightData, chartData, chartType, lastQuery, lastBotResponse, favorited,
       }));
     } catch { }
   }, [activeConvId, chatHistory, mapTitle, highlightData, chartData, chartType, lastQuery, lastBotResponse, favorited]);
-
-  // Clear any previously persisted conversation whenever auth changes.
-  // This prevents one user's chat from leaking to the next user after logout/login.
-  useEffect(() => {
-    if (prevTokenRef.current !== token) {
-      prevTokenRef.current = token;
-
-      try {
-        localStorage.removeItem('buffi_active_conv');
-        localStorage.removeItem('buffi_saved_convs');
-      } catch { }
-
-      setChatHistory([]);
-      setSavedConversations([]);
-      setMapTitle('New conversation');
-      setHighlightData(null);
-      setChartData(null);
-      setChartType('bar');
-      setLastQuery('');
-      setLastBotResponse('');
-      setFavorited(false);
-      setTableOpen(false);
-      setVizPanelOpen(false);
-      setVizPickerOpen(false);
-      setConvSwitcherOpen(false);
-      setShareOpen(false);
-      setDotsOpen(false);
-      setUndoState(null);
-    }
-  }, [token]);
 
   // Close chat dots dropdown on outside click
   useEffect(() => {
@@ -451,9 +421,13 @@ function ChatPage() {
     const snapshot = { id: activeConvId, chatHistory, highlightData, chartData, chartType, lastQuery, lastBotResponse, mapTitle, favorited };
     setSavedConversations(prev => {
       const idx = prev.findIndex(c => c.id === activeConvId);
-      if (idx >= 0) return prev.map((c, i) => i === idx ? snapshot : c);
-      return [...prev, snapshot];
+      const next = idx >= 0 ? prev.map((c, i) => i === idx ? snapshot : c) : [...prev, snapshot];
+      // Write immediately so AppSidebar doesn't have to wait for the 1.5s poll
+      try { localStorage.setItem(userKey('saved_convs'), JSON.stringify(next)); } catch { }
+      return next;
     });
+    // Signal AppSidebar to refresh its history list right now
+    window.dispatchEvent(new CustomEvent('buffi:conv-saved'));
   };
 
   const handleNewConversation = () => {

@@ -15,7 +15,8 @@ import pinoHttp from 'pino-http';
 import { chatWithOpenAI } from './openai.js';
 import sourcesRouter from './sources.js';
 import statsRouter from './stats.js';
-import { runImportIfNeeded } from './import-gtfs.js';
+// GTFS auto-import removed — platform is a blank slate.
+// Agencies upload their own data via the Data Hub.
 
 // destructure the connection pool from the pg package
 //
@@ -170,15 +171,15 @@ app.post('/api/register', authLimiter, async (req, res) => {
     }
 
     try {
-        // hash the password 10 times for security
-        //
         const hashedPassword = await bcrypt.hash(password, 10);
-
+        // Anyone who passes the admin secret registers as 'admin'.
+        // Future public registration (no secret) would insert with default 'viewer'.
         const result = await pool.query(
-            'INSERT INTO users (username, password_hash) VALUES ($1, $2) RETURNING id, username',
+            `INSERT INTO users (username, password_hash, user_role)
+             VALUES ($1, $2, 'admin')
+             RETURNING id, username`,
             [username, hashedPassword]
         );
-
         res.status(201).json(result.rows[0]);
     } catch (error) {
         logger.error({ err: error }, 'registration failed');
@@ -263,6 +264,28 @@ app.post('/api/logout', (req, res) => {
     res.json({ ok: true });
 });
 
+// Session restore — called on page load to rehydrate React state from the cookie.
+// Does a DB lookup to confirm the user still exists — a valid JWT against a wiped DB
+// (e.g. after docker compose down -v) would otherwise create a permanent ghost session.
+app.get('/api/me', authenticateToken, async (req, res) => {
+    try {
+        const result = await pool.query(
+            'SELECT id, username, user_role FROM users WHERE id = $1',
+            [req.user.id]
+        );
+        if (!result.rows[0]) {
+            // User was deleted (e.g. DB wiped) — kill the stale cookie immediately
+            res.clearCookie('via_session', { httpOnly: true, sameSite: 'strict' });
+            return res.status(401).json({ error: 'Session expired — please log in again.' });
+        }
+        const u = result.rows[0];
+        res.json({ username: u.username, role: u.user_role });
+    } catch (err) {
+        logger.error({ err }, '/api/me db check failed');
+        res.status(500).json({ error: 'Session verification failed.' });
+    }
+});
+
 // admin-only middleware — must be used AFTER authenticateToken
 //
 const requireAdmin = (req, res, next) => {
@@ -273,7 +296,7 @@ const requireAdmin = (req, res, next) => {
 };
 
 app.post('/api/chat/stream', authenticateToken, chatLimiter, async (req, res) => {
-    const { message, history } = req.body;
+    const { message, history, model: requestedModel } = req.body;
 
     if (!message) {
         return res.status(400).json({ error: 'Message is required' });
@@ -294,6 +317,11 @@ app.post('/api/chat/stream', authenticateToken, chatLimiter, async (req, res) =>
     const SAFE_SCHEMA = /^[a-z][a-z0-9_]{0,62}$/;
     const tenant = SAFE_SCHEMA.test(req.user?.tenant) ? req.user.tenant : 'bfi';
 
+    // E-2: Model selection — client may request a specific model.
+    // Validated against an explicit allowlist so the client cannot request arbitrary models.
+    const ALLOWED_MODELS = ['gpt-4o', 'gpt-4o-mini'];
+    const model = ALLOWED_MODELS.includes(requestedModel) ? requestedModel : 'gpt-4o-mini';
+
     // H-6: Set a hard timeout on the SSE connection so zombie streams don't accumulate.
     // 5 minutes is generous for even multi-tool AI responses.
     req.setTimeout(5 * 60 * 1000, () => {
@@ -302,7 +330,7 @@ app.post('/api/chat/stream', authenticateToken, chatLimiter, async (req, res) =>
     });
 
     try {
-        await chatWithOpenAI({ pool, userMessage: message, history: safeHistory, tenant, resForStream: res });
+        await chatWithOpenAI({ pool, userMessage: message, history: safeHistory, tenant, model, resForStream: res });
     } catch (error) {
         logger.error({ err: error }, 'AI stream error');
         res.status(500).end();
@@ -335,15 +363,27 @@ app.post('/api/feedback', authenticateToken, async (req, res) => {
     }
 });
 
+// E-3: Plugin registry — returns the plugin IDs this tenant has access to.
+// The frontend filters its local PLUGINS array to only show these IDs.
+//
+app.get('/api/plugins', authenticateToken, async (req, res) => {
+    try {
+        const SAFE_SCHEMA = /^[a-z][a-z0-9_]{0,62}$/;
+        const tenant = SAFE_SCHEMA.test(req.user?.tenant) ? req.user.tenant : 'bfi';
+        const result = await pool.query(
+            'SELECT plugin_id FROM tenant_plugins WHERE tenant_schema = $1 ORDER BY enabled_at ASC',
+            [tenant]
+        );
+        res.json({ plugins: result.rows.map(r => r.plugin_id) });
+    } catch (error) {
+        logger.error({ err: error }, 'plugins fetch failed');
+        res.status(500).json({ error: 'Failed to fetch plugins.' });
+    }
+});
+
 // GTFS Stats Route
 app.use('/api/stats', authenticateToken, statsRouter(pool));
 
-app.listen(PORT, async () => {
+app.listen(PORT, () => {
     console.log(`backend listening on port ${PORT}`);
-    // Check if GTFS data is loaded, and auto-import if not
-    try {
-        await runImportIfNeeded(pool);
-    } catch (err) {
-        logger.error({ err }, 'Auto-import failed');
-    }
 });

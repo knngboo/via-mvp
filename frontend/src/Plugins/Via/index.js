@@ -1,11 +1,12 @@
 import ViaDashboard from './Dashboard/ViaDashboard';
+import { parse } from './ParseLogic';
 
 const ViaPlugin = {
     id: 'via',
     name: 'Via Transit',
-    description: 'VIA MVP Transit Map and Overview.',
+    description: 'VIA Metropolitan Transit — dashboard backed by live PostgreSQL GTFS data.',
     Dashboard: ViaDashboard,
-    parse: (files) => files, // We will use this later when we upload CSVs!
+    parse,
 };
 
 export default ViaPlugin;

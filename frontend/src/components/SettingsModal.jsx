@@ -1,94 +1,207 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { getActivePluginId, setActivePluginId, useTenantPlugins } from 'Plugins';
 
-const STORAGE_KEY = 'buffi_api_key';
+// E-2: Settings Modal — three sections:
+//   1. Account   — username and role display
+//   2. Active Agency — plugin switcher (filtered to this tenant's allowed plugins)
+//   3. AI Model  — which GPT model Buffi uses
+//
+// Props: user, onClose, onLogout
 
-export const getStoredApiKey = () => {
-  try { return localStorage.getItem(STORAGE_KEY) || ''; } catch { return ''; }
-};
+const MODEL_KEY      = 'buffi_model';
+const ALLOWED_MODELS = [
+    { id: 'gpt-4o-mini', label: 'GPT-4o mini (faster, cheaper)' },
+    { id: 'gpt-4o',      label: 'GPT-4o (smarter, slower)'       },
+];
 
-const maskKey = (key) => {
-  if (!key) return '';
-  if (key.length <= 8) return '••••';
-  return `${key.slice(0, 4)}••••${key.slice(-4)}`;
-};
-
-export default function SettingsModal({ onClose }) {
-  const [savedKey, setSavedKey] = useState(getStoredApiKey);
-  const [draft, setDraft] = useState('');
-  const [reveal, setReveal] = useState(false);
-  const [savedFlash, setSavedFlash] = useState(false);
-
-  const handleSave = () => {
-    const value = draft.trim();
-    if (!value) return;
-    try { localStorage.setItem(STORAGE_KEY, value); } catch {}
-    setSavedKey(value);
-    setDraft('');
-    setSavedFlash(true);
-    setTimeout(() => setSavedFlash(false), 1500);
-  };
-
-  const handleClear = () => {
-    try { localStorage.removeItem(STORAGE_KEY); } catch {}
-    setSavedKey('');
-    setDraft('');
-  };
-
-  return (
-    <div className="settings-overlay" onClick={onClose} style={{
-      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-      backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1000,
-      display: 'flex', alignItems: 'center', justifyContent: 'center'
-    }}>
-      <div className="settings-modal" onClick={e => e.stopPropagation()} style={{
-        backgroundColor: '#1E1E1E', color: 'white', padding: '24px', borderRadius: '12px',
-        width: '400px', boxShadow: '0 10px 30px rgba(0,0,0,0.5)'
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h2 style={{ margin: 0, fontSize: '1.2rem' }}>Settings</h2>
-          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: '#999', cursor: 'pointer', fontSize: '1.2rem' }}>✕</button>
-        </div>
-        
-        <div style={{ marginBottom: '24px' }}>
-          <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>OpenAI API Key</label>
-          <p style={{ fontSize: '0.85rem', color: '#aaa', marginBottom: '12px' }}>
-            Optional. Overrides the backend default key. Stored locally only.
-          </p>
-
-          {savedKey ? (
-            <div style={{ backgroundColor: '#2C2C2C', padding: '12px', borderRadius: '8px', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <code style={{ flex: 1, fontFamily: 'monospace' }}>{reveal ? savedKey : maskKey(savedKey)}</code>
-              <button onClick={() => setReveal(!reveal)} style={{ background: '#444', color: 'white', border: 'none', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer' }}>
-                {reveal ? 'Hide' : 'Show'}
-              </button>
-              <button onClick={handleClear} style={{ background: '#E53935', color: 'white', border: 'none', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer' }}>
-                Clear
-              </button>
-            </div>
-          ) : (
-            <div style={{ color: '#888', marginBottom: '12px', fontStyle: 'italic' }}>No API key set</div>
-          )}
-
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <input
-              type="password"
-              placeholder={savedKey ? 'Replace with a new key…' : 'sk-…'}
-              value={draft}
-              onChange={e => setDraft(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') handleSave(); }}
-              style={{ flex: 1, padding: '8px', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#111', color: 'white' }}
-              autoFocus
-            />
-            <button
-              onClick={handleSave}
-              disabled={!draft.trim()}
-              style={{ padding: '8px 16px', borderRadius: '4px', border: 'none', backgroundColor: '#007BFF', color: 'white', cursor: draft.trim() ? 'pointer' : 'not-allowed', opacity: draft.trim() ? 1 : 0.5 }}
-            >
-              {savedFlash ? 'Saved ✓' : 'Save'}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+export function getStoredModel() {
+    try { return localStorage.getItem(MODEL_KEY) || 'gpt-4o-mini'; } catch { return 'gpt-4o-mini'; }
 }
+
+function setStoredModel(id) {
+    try { localStorage.setItem(MODEL_KEY, id); } catch { }
+    window.dispatchEvent(new CustomEvent('buffi:model-change', { detail: { id } }));
+}
+
+export default function SettingsModal({ user, onClose, onLogout }) {
+    const { plugins: tenantPlugins } = useTenantPlugins();
+    const [activePlugin, setActivePlugin] = useState(getActivePluginId);
+    const [model, setModel]               = useState(getStoredModel);
+
+    // Keep in sync if another tab changes the plugin.
+    useEffect(() => {
+        const refresh = () => setActivePlugin(getActivePluginId());
+        window.addEventListener('buffi:plugin-change', refresh);
+        return () => window.removeEventListener('buffi:plugin-change', refresh);
+    }, []);
+
+    const handlePluginChange = (e) => {
+        const id = e.target.value;
+        setActivePlugin(id);
+        setActivePluginId(id);
+    };
+
+    const handleModelChange = (e) => {
+        const id = e.target.value;
+        setModel(id);
+        setStoredModel(id);
+    };
+
+    const displayName = (user && (user.name || user.username)) || 'User';
+    const initial     = (displayName.trim()[0] || '?').toUpperCase();
+
+    return (
+        <div
+            style={{
+                position: 'fixed', inset: 0,
+                background: 'rgba(0,0,0,0.55)',
+                zIndex: 1000,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+            onClick={onClose}
+        >
+            <div
+                style={{
+                    background: '#1A1A1A',
+                    color: '#F2F2F2',
+                    borderRadius: '14px',
+                    padding: '28px',
+                    width: '340px',
+                    boxShadow: '0 16px 40px rgba(0,0,0,0.6)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '20px',
+                }}
+                onClick={(e) => e.stopPropagation()}
+            >
+                {/* Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h2 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 600 }}>Settings</h2>
+                    <button
+                        onClick={onClose}
+                        style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: '1.1rem', lineHeight: 1 }}
+                        title="Close"
+                    >
+                        ✕
+                    </button>
+                </div>
+
+                {/* Section: Account */}
+                <section style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <label style={labelStyle}>Account</label>
+                    <div style={{ ...cardStyle, gap: '12px' }}>
+                        <div style={avatarStyle}>{initial}</div>
+                        <div>
+                            <div style={{ fontWeight: 600, fontSize: '14px' }}>{displayName}</div>
+                            <div style={{ fontSize: '12px', color: '#888', textTransform: 'capitalize' }}>
+                                {user?.role || 'viewer'}
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                {/* Section: Active Agency */}
+                <section style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <label htmlFor="settings-plugin" style={labelStyle}>Active Agency</label>
+                    <p style={helpStyle}>Switches the dashboard to that agency's data view.</p>
+                    <select
+                        id="settings-plugin"
+                        style={selectStyle}
+                        value={activePlugin}
+                        onChange={handlePluginChange}
+                    >
+                        {tenantPlugins.length === 0 && (
+                            <option value="">No plugins assigned</option>
+                        )}
+                        {tenantPlugins.map(({ id, name }) => (
+                            <option key={id} value={id}>{name}</option>
+                        ))}
+                    </select>
+                </section>
+
+                {/* Section: AI Model */}
+                <section style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <label htmlFor="settings-model" style={labelStyle}>AI Model</label>
+                    <p style={helpStyle}>Which OpenAI model Buffi uses to answer questions.</p>
+                    <select
+                        id="settings-model"
+                        style={selectStyle}
+                        value={model}
+                        onChange={handleModelChange}
+                    >
+                        {ALLOWED_MODELS.map(({ id, label }) => (
+                            <option key={id} value={id}>{label}</option>
+                        ))}
+                    </select>
+                </section>
+
+                {/* Sign out */}
+                <button
+                    onClick={() => { onLogout(); onClose(); }}
+                    style={{
+                        marginTop: '4px',
+                        padding: '10px',
+                        borderRadius: '8px',
+                        border: 'none',
+                        background: '#2C2C2C',
+                        color: '#F2F2F2',
+                        cursor: 'pointer',
+                        fontWeight: 500,
+                        fontSize: '14px',
+                    }}
+                >
+                    Sign Out
+                </button>
+            </div>
+        </div>
+    );
+}
+
+// ── Shared style tokens ───────────────────────────────────────────────────────
+const labelStyle = {
+    fontSize: '11px',
+    fontWeight: 600,
+    textTransform: 'uppercase',
+    letterSpacing: '0.06em',
+    color: '#888',
+};
+
+const helpStyle = {
+    margin: 0,
+    fontSize: '12px',
+    color: '#666',
+    lineHeight: 1.5,
+};
+
+const cardStyle = {
+    background: '#2C2C2C',
+    borderRadius: '8px',
+    padding: '12px 14px',
+    display: 'flex',
+    alignItems: 'center',
+};
+
+const avatarStyle = {
+    width: '36px',
+    height: '36px',
+    borderRadius: '50%',
+    background: '#CB2128',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontWeight: 700,
+    fontSize: '16px',
+    flexShrink: 0,
+};
+
+const selectStyle = {
+    width: '100%',
+    padding: '9px 12px',
+    borderRadius: '8px',
+    border: '1px solid #333',
+    background: '#2C2C2C',
+    color: '#F2F2F2',
+    fontSize: '14px',
+    cursor: 'pointer',
+    outline: 'none',
+};

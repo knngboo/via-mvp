@@ -61,52 +61,22 @@ CREATE TABLE IF NOT EXISTS bfi.sources_meta (
     uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- VIA's GTFS Table Schemas
---
-CREATE TABLE IF NOT EXISTS stops (
-    stop_id VARCHAR(50) PRIMARY KEY,
-    stop_name VARCHAR(255),
-    stop_lat NUMERIC,
-    stop_lon NUMERIC,
-    location_type INTEGER,
-    wheelchair_boarding INTEGER
-);
-
-CREATE TABLE IF NOT EXISTS routes (
-    route_id VARCHAR(50) PRIMARY KEY,
-    route_short_name VARCHAR(50),
-    route_long_name VARCHAR(255),
-    route_type INTEGER
-);
-
-CREATE TABLE IF NOT EXISTS trips (
-    trip_id VARCHAR(50) PRIMARY KEY,
-    route_id VARCHAR(50) REFERENCES routes(route_id),
-    service_id VARCHAR(50),
-    trip_headsign VARCHAR(255),
-    direction_id INTEGER,
-    wheelchair_accessible INTEGER,
-    bikes_allowed INTEGER
-);
-
-CREATE TABLE IF NOT EXISTS stop_times (
-    trip_id VARCHAR(50) REFERENCES trips(trip_id),
-    arrival_time VARCHAR(20),
-    departure_time VARCHAR(20),
-    stop_id VARCHAR(50) REFERENCES stops(stop_id),
-    stop_sequence INTEGER,
-    pickup_type INTEGER,
-    drop_off_type INTEGER,
-    timepoint INTEGER,
-    PRIMARY KEY (trip_id, stop_sequence)
-);
-
--- Performance indexes on hot query paths and foreign keys
--- Without these, every JOIN against stop_times (690k+ rows) is a full sequential scan.
-CREATE INDEX IF NOT EXISTS idx_trips_route_id        ON trips(route_id);
-CREATE INDEX IF NOT EXISTS idx_stop_times_trip_id    ON stop_times(trip_id);
-CREATE INDEX IF NOT EXISTS idx_stop_times_stop_id    ON stop_times(stop_id);
-CREATE INDEX IF NOT EXISTS idx_stop_times_departure  ON stop_times(departure_time);
-CREATE INDEX IF NOT EXISTS idx_stops_lat_lon         ON stops(stop_lat, stop_lon);
+-- Performance indexes on platform tables
 CREATE INDEX IF NOT EXISTS idx_sources_meta_uploaded ON bfi.sources_meta(uploaded_at DESC);
+
+-- Plugin registry: which plugins each tenant has access to.
+-- A plugin maps to a folder in frontend/src/Plugins/<id>/.
+-- Add rows here to grant a tenant access to additional agency plugins.
+--
+CREATE TABLE IF NOT EXISTS tenant_plugins (
+    tenant_schema  VARCHAR(63) NOT NULL,
+    plugin_id      VARCHAR(63) NOT NULL,
+    enabled_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (tenant_schema, plugin_id)
+);
+
+-- Seed: the 'bfi' tenant (VIA) gets the 'via' plugin by default.
+INSERT INTO tenant_plugins (tenant_schema, plugin_id)
+VALUES ('bfi', 'via')
+ON CONFLICT DO NOTHING;
 

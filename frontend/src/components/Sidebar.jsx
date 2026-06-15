@@ -72,6 +72,24 @@ const Sidebar = () => {
                     {expanded && <span>Overview</span>}
                 </button>
 
+                {user?.role === 'admin' && (
+                    <button
+                        onClick={() => navigate('/sources')}
+                        style={{
+                            display: 'flex', alignItems: 'center', gap: '12px', padding: '10px',
+                            backgroundColor: pathname === '/sources' ? 'var(--grey-200)' : 'transparent',
+                            border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
+                            color: pathname === '/sources' ? 'var(--primary-500)' : 'var(--grey-700)',
+                            fontWeight: pathname === '/sources' ? 'bold' : 'normal',
+                            justifyContent: expanded ? 'flex-start' : 'center'
+                        }}
+                        title="Data Hub"
+                    >
+                        <img src={iconSources} alt="Data Hub" style={{ width: '20px', opacity: pathname === '/sources' ? 1 : 0.6 }} />
+                        {expanded && <span style={{ whiteSpace: 'nowrap' }}>Data Hub</span>}
+                    </button>
+                )}
+
                 <button
                     style={{
                         display: 'flex', alignItems: 'center', gap: '12px', padding: '10px',

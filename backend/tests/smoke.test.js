@@ -161,6 +161,25 @@ test('POST /api/feedback — saves feedback for authenticated user', async () =>
     assert.ok(typeof body.id === 'number');
 });
 
+// ── Plugin registry ───────────────────────────────────────────────────────────
+
+test('GET /api/plugins — rejects unauthenticated request', async () => {
+    const res = await fetch(`${BASE}/api/plugins`);
+    assert.equal(res.status, 401);
+});
+
+test('GET /api/plugins — returns allowed plugin list for authenticated tenant', async () => {
+    assert.ok(sessionCookie, 'login test must run first');
+    const res = await fetch(`${BASE}/api/plugins`, {
+        headers: { 'Cookie': sessionCookie },
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.ok(Array.isArray(body.plugins), 'plugins should be an array');
+    // The bfi tenant is seeded with the via plugin
+    assert.ok(body.plugins.includes('via'), 'via plugin should be in the list');
+});
+
 // ── Logout ────────────────────────────────────────────────────────────────────
 
 test('POST /api/logout — clears the session cookie', async () => {

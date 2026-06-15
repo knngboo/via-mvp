@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { getStoredModel } from './SettingsModal';
 import '../styles/FeedbackBubble.css';
 import arrowUpIcon from '../assets/images/Icons_Arrow_up.svg';
 import copyIcon from '../assets/images/Icons=Copy.svg';
@@ -123,7 +124,7 @@ export default function FeedbackBubble({ setHighlightData, setChartData, restore
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: trimmed, history: chatHistory }),
+        body: JSON.stringify({ message: trimmed, history: chatHistory, model: getStoredModel() }),
         signal: controller.signal
       });
       
