@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { getStoredModel } from './SettingsModal';
+import { getStoredModel, getStoredApiKey } from './SettingsModal';
 import '../styles/FeedbackBubble.css';
 import arrowUpIcon from '../assets/images/Icons_Arrow_up.svg';
 import copyIcon from '../assets/images/Icons=Copy.svg';
@@ -118,12 +118,17 @@ export default function FeedbackBubble({ setHighlightData, setChartData, restore
     abortRef.current = controller;
     let placeholderAdded = false;
     let fullAnswer = '';
+    let mapPayload = null;
 
     try {
+      const apiKey = getStoredApiKey();
       const res = await fetch(`/api/chat/stream`, {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiKey ? { 'X-OpenAI-Key': apiKey } : {}),
+        },
         body: JSON.stringify({ message: trimmed, history: chatHistory, model: getStoredModel() }),
         signal: controller.signal
       });
@@ -157,6 +162,17 @@ export default function FeedbackBubble({ setHighlightData, setChartData, restore
             if (payload === '[DONE]') continue;
             try {
               const json = JSON.parse(payload);
+
+              // Custom event from Buffi's map tools: render points on the map.
+              if (json.buffi_map) {
+                mapPayload = json.buffi_map;
+                const pts = json.buffi_map.points || [];
+                if (setHighlightData) setHighlightData(pts);
+                if (json.buffi_map.title && setMapTitle) setMapTitle(json.buffi_map.title);
+                if (openVisualizationPanel) openVisualizationPanel('map');
+                continue;
+              }
+
               const delta = json?.choices?.[0]?.delta?.content;
               if (delta) {
                 if (!placeholderAdded) {
@@ -173,6 +189,22 @@ export default function FeedbackBubble({ setHighlightData, setChartData, restore
             } catch (e) {}
           }
         }
+      }
+
+      // Attach any map produced by Buffi to the bot message so it persists and
+      // restores when the conversation is reopened.
+      if (mapPayload && mapPayload.points && mapPayload.points.length) {
+        setChatHistory(prev => {
+          const next = [...prev];
+          const existing = next[botIdx] || { from: 'bot', text: fullAnswer || 'Here is the map you asked for.' };
+          next[botIdx] = {
+            ...existing,
+            savedHighlightData: mapPayload.points,
+            savedTitle: mapPayload.title || existing.savedTitle,
+            mapTag: true,
+          };
+          return next;
+        });
       }
 
       if (setLastBotResponse) setLastBotResponse(fullAnswer);

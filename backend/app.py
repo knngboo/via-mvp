@@ -12,10 +12,12 @@ agencies upload their own data via the Data Hub.
 
 import functools
 import hmac
+import json
 import logging
 import os
 import re
 import sys
+import threading
 
 import bcrypt
 import jwt
@@ -26,7 +28,9 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
 import db
+from import_gtfs import ensure_database_loaded
 from openai_client import DEFAULT_MODEL, MaxToolRoundsError, prepare_chat, stream_openai
+from realtime import create_realtime_blueprint
 from sources import create_sources_blueprint, init_sources_meta
 from stats import create_stats_blueprint
 
@@ -81,6 +85,28 @@ chat_limit = limiter.shared_limit("30 per minute", scope="chat")
 # Initialise the DB pool and ensure the Data Hub metadata table exists
 db.init_pool()
 init_sources_meta()
+
+# Background GTFS load. Triggered when a user is logged in (login / session
+# restore). The load itself is idempotent and cross-process safe; this flag just
+# avoids spawning a redundant thread on every request within a worker.
+_db_load_started = False
+_db_load_lock = threading.Lock()
+
+
+def _ensure_db_loaded_async():
+    global _db_load_started
+    with _db_load_lock:
+        if _db_load_started:
+            return
+        _db_load_started = True
+
+    def _run():
+        try:
+            ensure_database_loaded()
+        except Exception as error:  # never let a load failure break auth
+            logger.error("background GTFS load failed: %s", error)
+
+    threading.Thread(target=_run, name="gtfs-load", daemon=True).start()
 
 
 # B5: explicit Content Security Policy + standard hardening headers (helmet parity)
@@ -248,6 +274,9 @@ def login():
         if isinstance(token, bytes):
             token = token.decode("utf-8")
 
+        # Ensure the transit database is loaded now that a user is logged in.
+        _ensure_db_loaded_async()
+
         resp = jsonify({"username": user["username"], "role": user["user_role"]})
         _set_session_cookie(resp, token)
         return resp
@@ -278,6 +307,9 @@ def me():
             resp = jsonify({"error": "Session expired — please log in again."})
             resp.delete_cookie("via_session", httponly=True, samesite="Strict")
             return resp, 401
+        # A restored session counts as "logged in" — make sure data is loaded.
+        _ensure_db_loaded_async()
+
         u = rows[0]
         return jsonify({"username": u["username"], "role": u["user_role"]})
     except Exception as error:
@@ -313,9 +345,15 @@ def chat_stream():
     tenant = _safe_tenant(g.user)
     model = requested_model if requested_model in ALLOWED_MODELS else "gpt-4o-mini"
 
+    # User-supplied OpenAI key (set in Settings) takes precedence over the server
+    # env var. Sent per-request as a header so it's never persisted server-side.
+    client_key = (request.headers.get("X-OpenAI-Key") or "").strip() or None
+    if not client_key and not os.environ.get("OPENAI_API_KEY"):
+        return jsonify({"error": "No OpenAI API key configured. Add one in Settings."}), 400
+
     # Run the (blocking) tool-calling loop first, then stream the final answer.
     try:
-        messages = prepare_chat(message, safe_history, tenant, model)
+        messages, map_payload = prepare_chat(message, safe_history, tenant, model, api_key=client_key)
     except MaxToolRoundsError:
         return jsonify({"error": "Buffi exceeded maximum reasoning steps."}), 500
     except Exception as error:
@@ -323,8 +361,13 @@ def chat_stream():
         return jsonify({"error": "AI request failed."}), 500
 
     def generate():
+        # If a map tool produced points, emit them first as a custom SSE event
+        # the frontend recognises (it ignores events without choices[].delta).
+        if map_payload and map_payload.get("points"):
+            event = "data: " + json.dumps({"buffi_map": map_payload}) + "\n\n"
+            yield event.encode("utf-8")
         try:
-            yield from stream_openai(messages, model)
+            yield from stream_openai(messages, model, api_key=client_key)
         except Exception as error:
             logger.error("AI stream error: %s", error)
 
@@ -382,16 +425,19 @@ def plugins():
 # ── Blueprints (authenticated) ──────────────────────────────────────────────
 sources_bp = create_sources_blueprint(require_admin)
 stats_bp = create_stats_blueprint()
+realtime_bp = create_realtime_blueprint()
 
 
 @sources_bp.before_request
 @stats_bp.before_request
+@realtime_bp.before_request
 def _require_auth_for_blueprints():
     return _verify_request_token()
 
 
 app.register_blueprint(sources_bp, url_prefix="/api/sources")
 app.register_blueprint(stats_bp, url_prefix="/api/stats")
+app.register_blueprint(realtime_bp, url_prefix="/api/realtime")
 
 
 if __name__ == "__main__":

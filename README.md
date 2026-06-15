@@ -9,7 +9,7 @@ A secure, containerized full-stack application built for **Better Futures Instit
 | Layer | Technology | Details |
 |-------|-----------|---------|
 | **Frontend** | React 18 + Vite | `localhost:5173` — All API calls proxied through Vite dev server |
-| **Backend** | Node.js / Express | API gateway bound to `127.0.0.1:5001`. Cookie-authenticated. |
+| **Backend** | Python / Flask (gunicorn) | API gateway bound to `127.0.0.1:5001`. Cookie-authenticated. See [`backend/README.md`](backend/README.md). |
 | **Database** | PostgreSQL 16 | Dockerized, bound to `127.0.0.1:5432`. Schemas: `public`, `bfi` |
 | **AI** | OpenAI GPT-4o / GPT-4o-mini | Text-to-SQL: AI receives schema context and writes its own queries |
 | **Orchestration** | Docker Compose | Single-command startup for all three services |
@@ -108,16 +108,16 @@ Then log in at `http://localhost:5173/login`.
 ### 🔐 Security
 - **HttpOnly session cookie** — JWT never accessible to JavaScript. Immune to XSS token theft.
 - All sensitive backend ports bound exclusively to `127.0.0.1`
-- Cookie-based auth enforced on every authenticated API endpoint (`authenticateToken` middleware)
-- Admin secret required for new account registration (timing-safe comparison via `crypto.timingSafeEqual`)
+- Cookie-based auth enforced on every authenticated API endpoint (`authenticate_token` decorator / blueprint guard)
+- Admin secret required for new account registration (timing-safe comparison via `hmac.compare_digest`)
 - Environment variables for all secrets — never hardcoded
-- **Explicit Content Security Policy** via Helmet — allowlists only known origins
-- Rate limiting on all auth and chat endpoints
+- **Explicit Content Security Policy** — allowlists only known origins
+- Rate limiting on all auth and chat endpoints (Flask-Limiter)
 - **Tenant schema derived from JWT** — all DB queries scoped to the authenticated user's tenant
 - **CSV column names sanitized** before SQL interpolation — strips all non-safe characters
 - Message length capped (4,000 chars) and chat history limited to last 20 exchanges per request
 - Vite proxy used for all frontend API calls (no CORS exposure, no backend port visible to browser)
-- **Multer 2.x** — up-to-date file upload handler with resolved CVE-2022-24434
+- **File uploads** validated for type (`.csv`) and size (50 MB max)
 
 ---
 
@@ -139,8 +139,8 @@ The AI automatically discovers all uploaded tables and their columns at query ti
 
 ## Development Notes
 
-- **Hot reload** is active in development — Vite HMR means most frontend changes apply without restarting Docker
-- **Backend restarts** are handled by `nodemon` — saving any backend `.js` file auto-restarts the Node server
+- **Hot reload** is active for the frontend — Vite HMR means most frontend changes apply without restarting Docker
+- **Backend** runs under gunicorn and does **not** auto-reload. After editing backend code, run `docker compose restart backend` (or add `--reload` to the Dockerfile `CMD` for local iteration). See [`backend/README.md`](backend/README.md).
 - To fully reset the database and start fresh:
   ```bash
   docker compose down -v
@@ -148,21 +148,20 @@ The AI automatically discovers all uploaded tables and their columns at query ti
   ```
   > ⚠️ `-v` wipes all data including user accounts and uploaded CSVs. You'll need to register again.
 - The `bfi` PostgreSQL schema is the primary tenant schema. Each uploaded CSV becomes its own dynamically-generated table within it.
-- Backend logs use **Pino** structured logging. In dev, logs are pretty-printed. In prod (`NODE_ENV=production`), logs are JSON for shipping to a log aggregator.
+- Backend logs use Python's `logging` module (level via `LOG_LEVEL`, default `INFO`).
 
 ---
 
 ## Running Tests
 
-The backend includes an integration smoke test suite using Node's built-in test runner:
+The backend includes an integration smoke test suite using Python's `unittest`:
 
 ```bash
 # Backend must be running first (docker compose up)
-cd backend
-ADMIN_SECRET=your-admin-secret npm test
+ADMIN_SECRET=your-admin-secret python -m unittest backend/tests/test_smoke.py
 ```
 
-Tests cover: registration guards, login + HttpOnly cookie, route protection, upload RBAC, feedback endpoint, and logout.
+Tests cover: registration guards, login + HttpOnly cookie, route protection, upload RBAC, feedback endpoint, plugin registry, and logout.
 
 ---
 
@@ -173,13 +172,17 @@ via-mvp/
 ├── .github/
 │   └── workflows/
 │       └── ci.yml              # GitHub Actions: runs tests + build check on every push
-├── backend/
-│   ├── server.js               # Express app — auth, JWT middleware, chat, feedback, /api/me
-│   ├── sources.js              # CSV upload + PostgreSQL table creation + submission context
-│   ├── openai.js               # OpenAI SSE streaming + text-to-SQL agent
-│   ├── stats.js                # DB stats API (empty-state safe)
+├── backend/                    # Python / Flask — see backend/README.md
+│   ├── app.py                  # Flask app — auth, JWT, chat, feedback, /api/me
+│   ├── sources.py              # CSV upload + PostgreSQL table creation + submission context
+│   ├── openai_client.py        # OpenAI SSE streaming + text-to-SQL agent
+│   ├── stats.py                # DB stats API (empty-state safe)
+│   ├── import_gtfs.py          # Optional GTFS bulk loader
+│   ├── db.py                   # psycopg2 connection pool + query helpers
+│   ├── requirements.txt        # Python dependencies
+│   ├── Depricated/             # Archived original Node/Express backend
 │   ├── tests/
-│   │   └── smoke.test.js       # Integration smoke test suite
+│   │   └── test_smoke.py       # Integration smoke test suite
 │   ├── db/
 │   │   └── init.sql            # Database schema (users, feedback, bfi schema)
 │   ├── .env                    # 🔒 Secret config (gitignored)

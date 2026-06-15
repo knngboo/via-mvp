@@ -18,6 +18,14 @@ from datetime import date, datetime, timedelta
 import requests
 
 import db
+import realtime
+
+# Column-name candidates (lowercased) used to auto-detect coordinates in the
+# result of a plot_on_map query.
+LAT_KEYS = ("latitude", "lat", "stop_lat", "y")
+LON_KEYS = ("longitude", "lon", "lng", "long", "stop_lon", "x")
+NAME_KEYS = ("name", "stop_name", "label", "title", "route_long_name", "route_short_name")
+MAX_MAP_POINTS = 500
 
 DEFAULT_MODEL = "gpt-4o-mini"
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
@@ -111,6 +119,13 @@ You answer questions about transit data and any data the agency has uploaded.
 TOOLS AVAILABLE:
 - run_query  → Write and run any read-only SQL SELECT against the database. Use this for nearly all data questions.
 - predict_route_ridership → Forecast future ridership using linear regression on historical data.
+- plot_on_map → Plot geographic points on the San Antonio map. Give it a SELECT that returns latitude and longitude columns (e.g. stop_lat/stop_lon from public.stops). Use this whenever the user asks to see, show, map, or locate things geographically.
+- show_live_buses → Plot VIA's live vehicle positions (real-time GTFS feed) on the map. Use when the user asks where buses are right now, live locations, or vehicle tracking.
+- get_service_alerts → Read VIA's current real-time service alerts (detours, delays). Use when the user asks about alerts, disruptions, or service changes.
+
+MAPPING:
+- When a question is geographic ("where", "show me on a map", "locations of", "nearest"), prefer plot_on_map or show_live_buses so the user gets a visual.
+- plot_on_map SQL MUST return latitude/longitude (stops have stop_lat/stop_lon). Include a name column when possible (e.g. stop_name) and keep results under ~500 rows.
 
 HOW TO USE run_query:
 - Write valid PostgreSQL SELECT statements only.
@@ -148,6 +163,52 @@ TOOLS = [
                 },
                 "required": ["sql"],
             },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "plot_on_map",
+            "description": "Plot geographic points on the San Antonio map. Provide a read-only SELECT that returns latitude and longitude columns (e.g. stop_lat, stop_lon). Optionally include a name column for labels.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "sql": {
+                        "type": "string",
+                        "description": "A PostgreSQL SELECT returning at least latitude and longitude columns (lat/lon/stop_lat/stop_lon accepted). Must start with SELECT.",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "A short title for the map, e.g. 'Stops near downtown'.",
+                    },
+                },
+                "required": ["sql"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "show_live_buses",
+            "description": "Plot VIA's live (real-time) vehicle positions on the map. Optionally filter to a single route_id.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "route_id": {
+                        "type": "string",
+                        "description": "Optional GTFS route_id to filter to (e.g. '100'). Omit to show all buses.",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_service_alerts",
+            "description": "Read VIA's current real-time service alerts (detours, delays, disruptions).",
+            "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
     {
@@ -196,30 +257,125 @@ def is_safe_select(sql):
 
 
 # ---------------------------------------------------------------------------
+# Map helpers
+# ---------------------------------------------------------------------------
+def _run_readonly_select(tenant, sql):
+    """Execute a guarded read-only SELECT; returns (rows, error_str)."""
+    if not is_safe_select(sql):
+        return None, "Only read-only SELECT statements are allowed. The query was rejected."
+    try:
+        with db.transaction() as cur:
+            cur.execute("SET TRANSACTION READ ONLY")
+            cur.execute('SET LOCAL search_path TO public, "{}"'.format(tenant))
+            cur.execute(sql)
+            rows = cur.fetchall() if cur.description else []
+        return rows, None
+    except Exception as e:
+        return None, "Query failed: {}".format(e)
+
+
+def _find_key(keys_present, candidates):
+    lowered = {k.lower(): k for k in keys_present}
+    for cand in candidates:
+        if cand in lowered:
+            return lowered[cand]
+    return None
+
+
+def _rows_to_map_points(rows):
+    """Detect lat/lon (and an optional name) columns and build MapView points.
+
+    Returns None when no coordinate columns are present, [] when present but
+    no row had valid numeric coordinates.
+    """
+    if not rows:
+        return []
+    keys = list(rows[0].keys())
+    lat_key = _find_key(keys, LAT_KEYS)
+    lon_key = _find_key(keys, LON_KEYS)
+    if not lat_key or not lon_key:
+        return None
+    name_key = _find_key(keys, NAME_KEYS)
+
+    points = []
+    for r in rows[:MAX_MAP_POINTS]:
+        try:
+            lat = float(r[lat_key])
+            lon = float(r[lon_key])
+        except (TypeError, ValueError):
+            continue
+        point = {"Latitude": lat, "Longitude": lon, "color": "#CB2128", "marker_radius": 6}
+        if name_key and r.get(name_key) is not None:
+            point["name"] = str(r[name_key])
+        # Carry extra scalar columns through for the data table / popups.
+        for k, v in r.items():
+            if k in (lat_key, lon_key, name_key):
+                continue
+            if isinstance(v, (str, int, float, bool)) or v is None:
+                point.setdefault(k, v)
+        points.append(point)
+    return points
+
+
+# ---------------------------------------------------------------------------
 # Tool executor
 # ---------------------------------------------------------------------------
-def run_tool(tenant, name, args):
+def run_tool(tenant, name, args, map_sink=None):
     # ── run_query ──────────────────────────────────────────────────────────
     if name == "run_query":
         sql = (args.get("sql") or "").strip()
+        rows, err = _run_readonly_select(tenant, sql)
+        if err:
+            return {"error": err}
+        return {
+            "row_count": len(rows),
+            "truncated": len(rows) > MAX_ROWS,
+            "data": rows[:MAX_ROWS],
+        }
 
-        if not is_safe_select(sql):
-            return {"error": "Only read-only SELECT statements are allowed. The query was rejected."}
+    # ── plot_on_map ────────────────────────────────────────────────────────
+    if name == "plot_on_map":
+        sql = (args.get("sql") or "").strip()
+        rows, err = _run_readonly_select(tenant, sql)
+        if err:
+            return {"error": err}
+        points = _rows_to_map_points(rows)
+        if points is None:
+            return {"error": "The query returned no latitude/longitude columns. Include lat/lon (e.g. stop_lat, stop_lon)."}
+        if not points:
+            return {"plotted": 0, "note": "No mappable rows were returned."}
+        if map_sink is not None:
+            map_sink["points"] = points
+            map_sink["title"] = args.get("title") or "Map"
+        return {"plotted": len(points), "title": args.get("title") or "Map",
+                "note": "Points are now shown on the map for the user."}
 
+    # ── show_live_buses ────────────────────────────────────────────────────
+    if name == "show_live_buses":
         try:
-            with db.transaction() as cur:
-                # Read-only transaction, search path limited to tenant + public
-                cur.execute("SET TRANSACTION READ ONLY")
-                cur.execute('SET LOCAL search_path TO public, "{}"'.format(tenant))
-                cur.execute(sql)
-                rows = cur.fetchall() if cur.description else []
-            return {
-                "row_count": len(rows),
-                "truncated": len(rows) > MAX_ROWS,
-                "data": rows[:MAX_ROWS],
-            }
+            vehicles = realtime.get_vehicle_positions()
         except Exception as e:
-            return {"error": "Query failed: {}".format(e)}
+            return {"error": "Could not read the live vehicle feed: {}".format(e)}
+        route_filter = (args.get("route_id") or "").strip()
+        if route_filter:
+            vehicles = [v for v in vehicles if str(v.get("route_id")) == route_filter]
+        points = realtime.vehicles_as_map_points(vehicles)
+        if map_sink is not None and points:
+            map_sink["points"] = points
+            map_sink["title"] = "Live buses" + (" — route {}".format(route_filter) if route_filter else "")
+        return {
+            "vehicle_count": len(points),
+            "title": "Live buses" + (" — route {}".format(route_filter) if route_filter else ""),
+            "note": "Live vehicle positions are now shown on the map." if points else "No live vehicles found.",
+        }
+
+    # ── get_service_alerts ─────────────────────────────────────────────────
+    if name == "get_service_alerts":
+        try:
+            alerts = realtime.get_service_alerts()
+        except Exception as e:
+            return {"error": "Could not read the alerts feed: {}".format(e)}
+        return {"alert_count": len(alerts), "alerts": alerts[:25]}
 
     # ── predict_route_ridership ────────────────────────────────────────────
     if name == "predict_route_ridership":
@@ -330,11 +486,17 @@ def _json_default(o):
     return str(o)
 
 
-def call_openai(messages, model=DEFAULT_MODEL):
+def _resolve_key(api_key):
+    """Prefer a per-request (user-supplied) key, fall back to the server env var."""
+    key = (api_key or "").strip() or os.environ.get("OPENAI_API_KEY")
+    if not key:
+        raise RuntimeError("No OpenAI API key available (set one in Settings or configure OPENAI_API_KEY).")
+    return key
+
+
+def call_openai(messages, model=DEFAULT_MODEL, api_key=None):
     """Non-streaming call — used for tool-calling rounds. Returns the message dict."""
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is not configured on the server.")
+    api_key = _resolve_key(api_key)
 
     res = requests.post(
         OPENAI_URL,
@@ -349,14 +511,12 @@ def call_openai(messages, model=DEFAULT_MODEL):
     return data.get("choices", [{}])[0].get("message")
 
 
-def stream_openai(messages, model=DEFAULT_MODEL):
+def stream_openai(messages, model=DEFAULT_MODEL, api_key=None):
     """
     Generator yielding raw OpenAI SSE bytes for the final text response.
     Passes messages WITHOUT tools so the model can only return text.
     """
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is not configured on the server.")
+    api_key = _resolve_key(api_key)
 
     res = requests.post(
         OPENAI_URL,
@@ -380,11 +540,17 @@ def stream_openai(messages, model=DEFAULT_MODEL):
 # ---------------------------------------------------------------------------
 # Main entry point — runs the tool loop, returns messages ready to stream
 # ---------------------------------------------------------------------------
-def prepare_chat(user_message, history=None, tenant="bfi", model=DEFAULT_MODEL):
+def prepare_chat(user_message, history=None, tenant="bfi", model=DEFAULT_MODEL, api_key=None):
     """
     Build context and run the (non-streaming) tool-calling loop.
-    Returns the message list to stream the final answer from.
+
+    Returns a tuple (messages, map_payload):
+      - messages    : the message list to stream the final answer from
+      - map_payload : {"points": [...], "title": str} if a map tool produced
+                      points to render, else None
+
     Raises MaxToolRoundsError if the model never settles on a text answer.
+    `api_key`, when provided, is a user-supplied key that overrides the env var.
     """
     schema_context = build_schema_context(tenant)
     system_prompt = "{}\n\n{}".format(SYSTEM_PROMPT_BASE, schema_context)
@@ -397,18 +563,22 @@ def prepare_chat(user_message, history=None, tenant="bfi", model=DEFAULT_MODEL):
         messages.append({"role": role, "content": m["text"]})
     messages.append({"role": "user", "content": user_message})
 
+    # Map tools write their points here; the latest non-empty result wins.
+    map_sink = {}
+
     for _ in range(MAX_TOOL_ROUNDS):
-        reply = call_openai(messages, model)
+        reply = call_openai(messages, model, api_key=api_key)
 
         if not reply or not reply.get("tool_calls"):
-            return messages  # ready to stream the final answer
+            map_payload = map_sink if map_sink.get("points") else None
+            return messages, map_payload  # ready to stream the final answer
 
         messages.append(reply)
 
         for call in reply["tool_calls"]:
             try:
                 args = json.loads(call["function"].get("arguments") or "{}")
-                result = run_tool(tenant, call["function"]["name"], args)
+                result = run_tool(tenant, call["function"]["name"], args, map_sink=map_sink)
             except Exception as err:
                 result = {"error": str(err)}
             messages.append({

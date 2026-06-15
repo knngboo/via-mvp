@@ -19,6 +19,60 @@ import db
 GTFS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "google_transit")
 BATCH_SIZE = 5000
 
+# Arbitrary key for a Postgres advisory lock that serialises the import across
+# gunicorn workers/processes so a first-login race can't double-import.
+GTFS_LOCK_KEY = 778899
+
+# DDL for the four GTFS tables we query. Kept here (and mirrored in db/init.sql)
+# so the import is self-contained even on a pre-existing database volume that
+# predates these tables.
+TABLE_DDL = [
+    """
+    CREATE TABLE IF NOT EXISTS stops (
+        stop_id              TEXT PRIMARY KEY,
+        stop_name            TEXT,
+        stop_lat             DOUBLE PRECISION,
+        stop_lon             DOUBLE PRECISION,
+        location_type        INTEGER,
+        wheelchair_boarding  INTEGER
+    );
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS routes (
+        route_id          TEXT PRIMARY KEY,
+        route_short_name  TEXT,
+        route_long_name   TEXT,
+        route_type        INTEGER
+    );
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS trips (
+        trip_id                TEXT PRIMARY KEY,
+        route_id               TEXT,
+        service_id             TEXT,
+        trip_headsign          TEXT,
+        direction_id           INTEGER,
+        wheelchair_accessible  INTEGER,
+        bikes_allowed          INTEGER
+    );
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS stop_times (
+        trip_id         TEXT,
+        arrival_time    TEXT,
+        departure_time  TEXT,
+        stop_id         TEXT,
+        stop_sequence   INTEGER,
+        pickup_type     INTEGER,
+        drop_off_type   INTEGER,
+        timepoint       INTEGER,
+        PRIMARY KEY (trip_id, stop_sequence)
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_trips_route_id ON trips(route_id);",
+    "CREATE INDEX IF NOT EXISTS idx_stop_times_stop_id ON stop_times(stop_id);",
+]
+
 # We only import the 4 tables we actually query to keep it fast and clean
 FILES = {
     "stops.txt": {
@@ -97,19 +151,34 @@ def _import_file(cur, file_name, spec):
     print("{}: imported {} rows".format(spec["table"], total))
 
 
-def run_import_if_needed():
-    try:
-        existing = db.query("SELECT count(*) AS n FROM stops")
-        if int(existing[0]["n"]) > 0:
-            print("GTFS data already loaded. Skipping import.")
-            return
-    except Exception:
-        # `stops` may not exist yet — fall through and attempt the import
-        pass
+def _ensure_tables(cur):
+    for stmt in TABLE_DDL:
+        cur.execute(stmt)
 
-    print("GTFS tables are empty. Starting import from CSV...")
+
+def ensure_database_loaded():
+    """
+    Idempotently load the bundled GTFS feed into Postgres.
+
+    Safe to call on every login: cheap when data already exists, and serialised
+    by a Postgres advisory lock so concurrent callers can't double-import. The
+    whole operation runs in one transaction, so a failure leaves no partial data.
+    """
     try:
         with db.transaction() as cur:
+            # Bail out immediately if another worker is already importing.
+            cur.execute("SELECT pg_try_advisory_xact_lock(%s) AS locked", (GTFS_LOCK_KEY,))
+            if not cur.fetchone()["locked"]:
+                print("GTFS import already in progress elsewhere. Skipping.")
+                return
+
+            _ensure_tables(cur)
+
+            cur.execute("SELECT count(*) AS n FROM stops")
+            if int(cur.fetchone()["n"]) > 0:
+                return  # already loaded — nothing to do
+
+            print("GTFS tables are empty. Starting import from CSV...")
             for file_name, spec in FILES.items():
                 _import_file(cur, file_name, spec)
         print("GTFS import complete!")
@@ -119,6 +188,11 @@ def run_import_if_needed():
         print("GTFS import failed:", err)
 
 
+# Backwards-compatible alias for the original entry-point name.
+def run_import_if_needed():
+    ensure_database_loaded()
+
+
 if __name__ == "__main__":
     from dotenv import load_dotenv
 
@@ -126,4 +200,4 @@ if __name__ == "__main__":
     # Standalone runs default to localhost rather than the docker 'postgres' host.
     os.environ.setdefault("POSTGRES_HOST", os.environ.get("POSTGRES_HOST", "localhost"))
     db.init_pool()
-    run_import_if_needed()
+    ensure_database_loaded()

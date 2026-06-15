@@ -80,3 +80,49 @@ INSERT INTO tenant_plugins (tenant_schema, plugin_id)
 VALUES ('bfi', 'via')
 ON CONFLICT DO NOTHING;
 
+-- GTFS transit tables (public schema).
+-- These are populated on login by backend/import_gtfs.py from the bundled
+-- google_transit/ feed. The DDL is mirrored there (CREATE TABLE IF NOT EXISTS)
+-- so the import also works against database volumes that predate these tables.
+--
+CREATE TABLE IF NOT EXISTS stops (
+    stop_id              TEXT PRIMARY KEY,
+    stop_name            TEXT,
+    stop_lat             DOUBLE PRECISION,
+    stop_lon             DOUBLE PRECISION,
+    location_type        INTEGER,
+    wheelchair_boarding  INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS routes (
+    route_id          TEXT PRIMARY KEY,
+    route_short_name  TEXT,
+    route_long_name   TEXT,
+    route_type        INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS trips (
+    trip_id                TEXT PRIMARY KEY,
+    route_id               TEXT,
+    service_id             TEXT,
+    trip_headsign          TEXT,
+    direction_id           INTEGER,
+    wheelchair_accessible  INTEGER,
+    bikes_allowed          INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS stop_times (
+    trip_id         TEXT,
+    arrival_time    TEXT,
+    departure_time  TEXT,
+    stop_id         TEXT,
+    stop_sequence   INTEGER,
+    pickup_type     INTEGER,
+    drop_off_type   INTEGER,
+    timepoint       INTEGER,
+    PRIMARY KEY (trip_id, stop_sequence)
+);
+
+CREATE INDEX IF NOT EXISTS idx_trips_route_id ON trips(route_id);
+CREATE INDEX IF NOT EXISTS idx_stop_times_stop_id ON stop_times(stop_id);
+

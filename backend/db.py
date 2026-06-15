@@ -64,7 +64,14 @@ def query(sql, params=None):
     with _checkout() as conn:
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute(sql, params or ())
+                # Only pass params when there are some. Passing an (empty) tuple
+                # makes psycopg2 run %-substitution over the SQL, which breaks any
+                # query containing a literal '%' (e.g. "% 24" in a modulo) with a
+                # "not enough arguments for format string" / tuple error.
+                if params is None:
+                    cur.execute(sql)
+                else:
+                    cur.execute(sql, params)
                 rows = cur.fetchall() if cur.description else []
             conn.commit()
             return rows

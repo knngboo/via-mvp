@@ -9,6 +9,7 @@ import { getActivePluginId, setActivePluginId, useTenantPlugins } from 'Plugins'
 // Props: user, onClose, onLogout
 
 const MODEL_KEY      = 'buffi_model';
+const APIKEY_KEY     = 'buffi_openai_key';
 const ALLOWED_MODELS = [
     { id: 'gpt-4o-mini', label: 'GPT-4o mini (faster, cheaper)' },
     { id: 'gpt-4o',      label: 'GPT-4o (smarter, slower)'       },
@@ -23,10 +24,25 @@ function setStoredModel(id) {
     window.dispatchEvent(new CustomEvent('buffi:model-change', { detail: { id } }));
 }
 
+// User-supplied OpenAI API key. Stored locally in the browser and sent per-request
+// as the X-OpenAI-Key header — it overrides the server's env key for that user.
+export function getStoredApiKey() {
+    try { return localStorage.getItem(APIKEY_KEY) || ''; } catch { return ''; }
+}
+
+function setStoredApiKey(key) {
+    try {
+        if (key) localStorage.setItem(APIKEY_KEY, key);
+        else localStorage.removeItem(APIKEY_KEY);
+    } catch { }
+}
+
 export default function SettingsModal({ user, onClose, onLogout }) {
     const { plugins: tenantPlugins } = useTenantPlugins();
     const [activePlugin, setActivePlugin] = useState(getActivePluginId);
     const [model, setModel]               = useState(getStoredModel);
+    const [apiKey, setApiKey]             = useState(getStoredApiKey);
+    const [keyStatus, setKeyStatus]       = useState('');
 
     // Keep in sync if another tab changes the plugin.
     useEffect(() => {
@@ -45,6 +61,21 @@ export default function SettingsModal({ user, onClose, onLogout }) {
         const id = e.target.value;
         setModel(id);
         setStoredModel(id);
+    };
+
+    const handleSaveKey = () => {
+        const trimmed = apiKey.trim();
+        setApiKey(trimmed);
+        setStoredApiKey(trimmed);
+        setKeyStatus(trimmed ? 'Saved ✓' : 'Cleared');
+        setTimeout(() => setKeyStatus(''), 1800);
+    };
+
+    const handleClearKey = () => {
+        setApiKey('');
+        setStoredApiKey('');
+        setKeyStatus('Cleared');
+        setTimeout(() => setKeyStatus(''), 1800);
     };
 
     const displayName = (user && (user.name || user.username)) || 'User';
@@ -135,6 +166,32 @@ export default function SettingsModal({ user, onClose, onLogout }) {
                     </select>
                 </section>
 
+                {/* Section: OpenAI API Key */}
+                <section style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <label htmlFor="settings-apikey" style={labelStyle}>OpenAI API Key</label>
+                    <p style={helpStyle}>
+                        Use your own OpenAI key for Buffi. Stored only in this browser and sent
+                        securely with each chat request. Leave blank to use the server default.
+                    </p>
+                    <input
+                        id="settings-apikey"
+                        type="password"
+                        autoComplete="off"
+                        spellCheck={false}
+                        placeholder="sk-..."
+                        style={selectStyle}
+                        value={apiKey}
+                        onChange={(e) => setApiKey(e.target.value)}
+                    />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button onClick={handleSaveKey} style={primaryBtnStyle}>Save</button>
+                        <button onClick={handleClearKey} style={ghostBtnStyle}>Clear</button>
+                        {keyStatus && (
+                            <span style={{ fontSize: '12px', color: '#7ED957' }}>{keyStatus}</span>
+                        )}
+                    </div>
+                </section>
+
                 {/* Sign out */}
                 <button
                     onClick={() => { onLogout(); onClose(); }}
@@ -204,4 +261,26 @@ const selectStyle = {
     fontSize: '14px',
     cursor: 'pointer',
     outline: 'none',
+};
+
+const primaryBtnStyle = {
+    padding: '8px 16px',
+    borderRadius: '8px',
+    border: 'none',
+    background: '#CB2128',
+    color: '#fff',
+    cursor: 'pointer',
+    fontWeight: 600,
+    fontSize: '13px',
+};
+
+const ghostBtnStyle = {
+    padding: '8px 14px',
+    borderRadius: '8px',
+    border: '1px solid #333',
+    background: 'transparent',
+    color: '#CCC',
+    cursor: 'pointer',
+    fontWeight: 500,
+    fontSize: '13px',
 };
