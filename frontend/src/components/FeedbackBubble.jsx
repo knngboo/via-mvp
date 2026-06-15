@@ -47,6 +47,7 @@ export default function FeedbackBubble({ setHighlightData, setChartData, restore
   const moreDropdownRef = useRef(null);
   const [reactions, setReactions] = useState({});
   const [copiedIdx, setCopiedIdx] = useState(null);
+  const [reportToast, setReportToast] = useState(null); // { idx, status: 'ok'|'err' }
   const historyRef = useRef(null);
   const textareaRef = useRef(null);
   const initialQuerySent = useRef(false);
@@ -118,21 +119,22 @@ export default function FeedbackBubble({ setHighlightData, setChartData, restore
     let fullAnswer = '';
 
     try {
-      const customKey = localStorage.getItem('buffi_api_key') || '';
-      const token = localStorage.getItem('via_token') || '';
       const res = await fetch(`/api/chat/stream`, {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'x-openai-key': customKey,
-          'Authorization': `Bearer ${token}`
-        },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: trimmed, history: chatHistory }),
         signal: controller.signal
       });
       
       if (!res.ok) {
-        throw new Error('Server returned an error');
+        // Read the actual error from the server instead of swallowing it
+        let errMsg = `Server error (${res.status})`;
+        try {
+          const errBody = await res.json();
+          if (errBody?.error) errMsg = errBody.error;
+        } catch (_) {}
+        throw new Error(errMsg);
       }
 
       const reader = res.body.getReader();
@@ -219,13 +221,22 @@ export default function FeedbackBubble({ setHighlightData, setChartData, restore
     setOpenMoreIdx(null);
   };
 
-  const handleReport = (idx) => {
-    try {
-      const reports = JSON.parse(localStorage.getItem('buffi_reports') || '[]');
-      reports.push({ idx, text: chatHistory[idx]?.text, timestamp: Date.now() });
-      localStorage.setItem('buffi_reports', JSON.stringify(reports));
-    } catch { }
+  const handleReport = async (idx) => {
     setOpenMoreIdx(null);
+    const messageText = chatHistory[idx]?.text || '';
+    try {
+      const res = await fetch('/api/feedback', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message_text: messageText }),
+      });
+      if (!res.ok) throw new Error('server error');
+      setReportToast({ idx, status: 'ok' });
+    } catch (_) {
+      setReportToast({ idx, status: 'err' });
+    }
+    setTimeout(() => setReportToast(null), 2000);
   };
 
   const handleReaction = (idx, type) => {
@@ -457,6 +468,17 @@ export default function FeedbackBubble({ setHighlightData, setChartData, restore
                           Report
                         </button>
                       </div>
+                    )}
+                    {reportToast?.idx === idx && (
+                      <span style={{
+                        fontSize: '11px',
+                        fontWeight: 500,
+                        color: reportToast.status === 'ok' ? '#4caf50' : '#e53935',
+                        marginLeft: '6px',
+                        whiteSpace: 'nowrap',
+                      }}>
+                        {reportToast.status === 'ok' ? 'Reported ✓' : 'Report failed'}
+                      </span>
                     )}
                   </div>
                 </div>

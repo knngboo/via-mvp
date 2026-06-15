@@ -1,3 +1,6 @@
+// C3: All authenticated requests now use credentials:'include' to send the
+// HttpOnly session cookie automatically. No Authorization headers needed.
+
 const API_BASE_URL = '/api';
 
 class ApiService {
@@ -5,17 +8,17 @@ class ApiService {
     this.baseURL = API_BASE_URL;
   }
 
-  // Helper to get auth headers
-  getAuthHeaders(includeContentType = true) {
-    const token = localStorage.getItem('via_token');
-    const headers = {};
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-    if (includeContentType) {
-      headers['Content-Type'] = 'application/json';
-    }
-    return headers;
+  // Helper: base fetch options for all authenticated requests
+  // credentials:'include' is required for cookies to be sent in fetch requests.
+  getRequestOptions(extraOptions = {}) {
+    return {
+      credentials: 'include',
+      ...extraOptions,
+    };
+  }
+
+  getJsonHeaders() {
+    return { 'Content-Type': 'application/json' };
   }
 
   // Health check (hits root /health, not /api/health)
@@ -34,9 +37,10 @@ class ApiService {
     try {
       const response = await fetch(`${this.baseURL}/register`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          'x-admin-secret': adminSecret
+          'x-admin-secret': adminSecret,
         },
         body: JSON.stringify({ username, password }),
       });
@@ -61,15 +65,13 @@ class ApiService {
     }
   }
 
-  // Login user
+  // Login user — backend sets HttpOnly cookie; response body contains { username, role }
   async login(username, password) {
     try {
       const response = await fetch(`${this.baseURL}/login`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        // Support both username/password depending on backend expectation (it's username)
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       });
 
@@ -86,7 +88,7 @@ class ApiService {
         throw new Error(data.message || data.error || 'Login failed');
       }
 
-      return data;
+      return data; // { username, role }
     } catch (error) {
       console.error('Login failed:', error);
       throw error;
@@ -99,12 +101,9 @@ class ApiService {
       const formData = new FormData();
       formData.append('file', file);
 
-      // don't include Content-Type, let browser set it with boundary
-      const headers = this.getAuthHeaders(false);
-
       const response = await fetch(`${this.baseURL}/sources`, {
         method: 'POST',
-        headers,
+        credentials: 'include',
         body: formData,
       });
 
@@ -124,7 +123,8 @@ class ApiService {
   async getSources() {
     try {
       const response = await fetch(`${this.baseURL}/sources`, {
-        headers: this.getAuthHeaders(),
+        ...this.getRequestOptions(),
+        headers: this.getJsonHeaders(),
       });
       if (!response.ok) {
         throw new Error('Failed to get sources');
@@ -141,7 +141,7 @@ class ApiService {
     try {
       const response = await fetch(`${this.baseURL}/sources/${id}`, {
         method: 'DELETE',
-        headers: this.getAuthHeaders(),
+        ...this.getRequestOptions(),
       });
       if (!response.ok) {
         throw new Error('Failed to delete source');
@@ -153,12 +153,13 @@ class ApiService {
     }
   }
 
-  // Submit metadata context for an uploaded source (P2-3)
+  // Submit metadata context for an uploaded source
   async submitContext(id, formData) {
     try {
       const response = await fetch(`${this.baseURL}/sources/${id}/context`, {
         method: 'PATCH',
-        headers: this.getAuthHeaders(),
+        credentials: 'include',
+        headers: this.getJsonHeaders(),
         body: JSON.stringify({
           projectName:    formData.projectName    || null,
           description:    formData.description    || null,
@@ -184,7 +185,8 @@ class ApiService {
   async getStats() {
     try {
       const response = await fetch(`${this.baseURL}/stats`, {
-        headers: this.getAuthHeaders(),
+        ...this.getRequestOptions(),
+        headers: this.getJsonHeaders(),
       });
       if (!response.ok) {
         throw new Error('Failed to get stats');

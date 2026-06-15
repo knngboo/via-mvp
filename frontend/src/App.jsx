@@ -12,13 +12,13 @@ import UploadPage from './pages/hub/UploadPage';
 const ProtectedRoute = ({ children }) => {
     const context = useContext(AuthContext);
     if (!context) return <Navigate to="/login" />;
-    return context.token ? children : <Navigate to="/login" />;
+    return context.user ? children : <Navigate to="/login" />;
 };
 
 const AdminRoute = ({ children }) => {
     const context = useContext(AuthContext);
     if (!context) return <Navigate to="/login" />;
-    if (!context.token) return <Navigate to="/login" />;
+    if (!context.user) return <Navigate to="/login" />;
     if (context.user?.role !== 'admin') return <Navigate to="/chat" />;
     return children;
 };

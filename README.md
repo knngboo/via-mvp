@@ -1,6 +1,6 @@
 # VIA MVP — Transit Data Platform
 
-A secure, containerized full-stack application built for **Better Futures Institute (BFI)** to centralize, analyze, and explore VIA Metropolitan Transit data. This branch (`bfi-superman`) is the **unified production-ready architecture**, combining all legacy features into a single, hardened, and performant application.
+A secure, containerized full-stack application built for **Better Futures Institute (BFI)** to centralize, analyze, and explore VIA Metropolitan Transit data.
 
 ---
 
@@ -8,9 +8,9 @@ A secure, containerized full-stack application built for **Better Futures Instit
 
 | Layer | Technology | Details |
 |-------|-----------|---------|
-| **Frontend** | React 18 + Vite | `localhost:5173` — All API calls proxied securely through Vite |
-| **Backend** | Node.js / Express | API gateway bound to `127.0.0.1:5001`. JWT-secured. |
-| **Database** | PostgreSQL 16 | Dockerized, bound to `127.0.0.1:5432`. Schemas: `public`, `bfi`, `tenant` |
+| **Frontend** | React 18 + Vite | `localhost:5173` — All API calls proxied through Vite dev server |
+| **Backend** | Node.js / Express | API gateway bound to `127.0.0.1:5001`. Cookie-authenticated. |
+| **Database** | PostgreSQL 16 | Dockerized, bound to `127.0.0.1:5432`. Schemas: `public`, `bfi` |
 | **Orchestration** | Docker Compose | Single-command startup for all three services |
 
 ---
@@ -58,8 +58,8 @@ All three services start automatically. The backend waits for Postgres to be hea
 
 Navigate to `http://localhost:5173/register` and fill in:
 - **Username** — your chosen username
-- **Password** — a secure password
-- **Admin Secret** — the value of `ADMIN_SECRET` from your `.env` (e.g. `MySuperSecretKey99!`)
+- **Password** — minimum 8 characters
+- **Admin Secret** — the value of `ADMIN_SECRET` from your `.env`
 
 Then log in at `http://localhost:5173/login`.
 
@@ -87,6 +87,7 @@ Then log in at `http://localhost:5173/login`.
 - **`get_stop_departures`** — Relational query (stop ID → scheduled departure times)
 - Real-time SSE streaming with live interruption ("Stop" button)
 - Conversation history with save, rename, favorite, and delete
+- Flag any AI response via the "Report" button — saves to the `feedback` DB table
 
 ### 🗺️ VIA Dashboard (`/dashboard`)
 - Full-page interactive San Antonio ZIP code map (raw Leaflet — no React wrapper)
@@ -100,10 +101,15 @@ Then log in at `http://localhost:5173/login`.
 - Filter by folder, sort by name
 
 ### 🔐 Security
+- **HttpOnly session cookie** — JWT is never accessible to JavaScript. Immune to XSS token theft.
 - All sensitive backend ports bound exclusively to `127.0.0.1`
-- JWT middleware enforced on every authenticated API endpoint
-- Admin secret required for new account registration
+- Cookie-based auth enforced on every authenticated API endpoint via `authenticateToken` middleware
+- Admin secret required for new account registration (timing-safe comparison)
 - Environment variables for all secrets — never hardcoded
+- Explicit Content Security Policy via Helmet
+- Rate limiting on all auth endpoints
+- Tenant schema derived from JWT — all DB queries scoped to the user's tenant
+- CSV column names sanitized before SQL interpolation
 - Vite proxy used for all frontend API calls (no CORS, no exposed ports)
 
 ---
@@ -117,7 +123,7 @@ The backend automatically handles data setup on startup:
    - `routes.txt` → 89 routes
    - `trips.txt` → 14,589 trips
    - `stop_times.txt` → 690,475 stop-time records
-   
+
    On subsequent boots, if data already exists, the import is skipped automatically.
 
 2. **Sources Metadata Table** — `bfi.sources_meta` is created on boot to track all uploaded CSVs.
@@ -133,7 +139,23 @@ The backend automatically handles data setup on startup:
   docker compose down -v
   docker compose up --build
   ```
+  > ⚠️ `-v` wipes all data including user accounts. You'll need to register again.
 - The `bfi` PostgreSQL schema is the primary tenant schema. Each uploaded CSV becomes its own dynamically-generated table within it.
+- Backend logs use **Pino** structured logging. In dev, logs are pretty-printed with colors. In prod (`NODE_ENV=production`), logs are JSON for shipping to a log aggregator.
+
+---
+
+## Running Tests
+
+The backend includes an integration smoke test suite using Node's built-in test runner (no extra dependencies):
+
+```bash
+# Backend must be running first (docker compose up)
+cd backend
+ADMIN_SECRET=your-admin-secret npm test
+```
+
+Tests cover: registration guards, login + HttpOnly cookie, route protection, upload RBAC, feedback endpoint, and logout.
 
 ---
 
@@ -141,17 +163,24 @@ The backend automatically handles data setup on startup:
 
 ```
 via-mvp/
+├── .github/
+│   └── workflows/
+│       └── ci.yml              # GitHub Actions: runs tests + build check on every push
 ├── backend/
-│   ├── server.js          # Express app entry point — auth, login, JWT middleware, chat routes
-│   ├── sources.js         # CSV upload + PostgreSQL table creation + submission context
-│   ├── import-gtfs.js     # GTFS static data pipeline (auto-runs on first boot)
-│   ├── openai.js          # OpenAI SSE streaming + AI tool definitions
-│   ├── stats.js           # GTFS stats API (stop/route/trip counts)
-│   ├── .env               # 🔒 Secret config (gitignored)
-│   └── .env.example       # Template for new developers
+│   ├── server.js               # Express app — auth, JWT middleware, chat routes, feedback
+│   ├── sources.js              # CSV upload + PostgreSQL table creation + submission context
+│   ├── import-gtfs.js          # GTFS static data pipeline (auto-runs on first boot)
+│   ├── openai.js               # OpenAI SSE streaming + AI tool definitions
+│   ├── stats.js                # GTFS stats API (stop/route/trip counts)
+│   ├── tests/
+│   │   └── smoke.test.js       # Integration smoke test suite
+│   ├── db/
+│   │   └── init.sql            # Database schema (users, feedback, bfi schema, GTFS tables)
+│   ├── .env                    # 🔒 Secret config (gitignored)
+│   └── .env.example            # Template for new developers
 ├── frontend/
 │   ├── src/
-│   │   ├── App.jsx                        # Route definitions
+│   │   ├── App.jsx                        # Route definitions + ProtectedRoute / AdminRoute
 │   │   ├── pages/
 │   │   │   ├── Login.jsx
 │   │   │   ├── Register.jsx
@@ -159,17 +188,18 @@ via-mvp/
 │   │   │   └── hub/
 │   │   │       └── UploadPage.jsx         # Sources / data hub
 │   │   ├── components/
-│   │   │   ├── AppSidebar.jsx             # Global navigation sidebar
-│   │   │   ├── AppLayout.jsx              # Sidebar + main content wrapper
+│   │   │   ├── AppSidebar.jsx             # Global navigation sidebar (desktop)
+│   │   │   ├── Sidebar.jsx                # Mobile sidebar
+│   │   │   ├── FeedbackBubble.jsx         # AI chat + SSE streaming
 │   │   │   ├── MapView.jsx                # Raw Leaflet map component
 │   │   │   └── PluginDashboardPage.jsx    # Dashboard shell
 │   │   ├── Plugins/
 │   │   │   └── Via/                       # VIA-specific plugin (map + stats)
 │   │   ├── context/
-│   │   │   ├── AuthContext.jsx            # JWT auth state
+│   │   │   ├── AuthContext.jsx            # Cookie-based auth state
 │   │   │   └── CsvContext.jsx             # Shared CSV/upload state
 │   │   └── services/
-│   │       └── api.js                     # All backend API calls
+│   │       └── api.js                     # All backend API calls (credentials: include)
 │   └── vite.config.js                     # Vite + proxy config
 ├── docker-compose.yml                     # Development compose file
 ├── docker-compose.prod.yml                # Production compose file
@@ -197,24 +227,23 @@ The application will be available on port `80`.
 > **First deployment?** Run `docker compose -f docker-compose.prod.yml up --build` (without `-d`) the first time so you can watch the GTFS import logs. The initial boot imports ~700k stop-time records — this takes 30–60 seconds. Subsequent starts are instant.
 
 ### 2. Role-Based Access Control (RBAC) Management
-By default, newly registered users are given the `viewer` role, which hides the administrative "Sources" tab. 
+By default, newly registered users are given the `viewer` role, which hides the administrative "Sources" tab.
 
 To grant a user access to the "Sources" data upload pipeline, a database administrator must manually elevate their role to `admin` via PostgreSQL:
 
 ```bash
-# Access the running postgres container (replace your-db-user with your POSTGRES_USER)
+# Access the running postgres container
 docker exec -it via-mvp-postgres-1 psql -U your-db-user -d via_mvp
 
 # Update the user's role
 UPDATE users SET user_role = 'admin' WHERE username = 'target_user';
 ```
-*(The user must log out and log back in to receive their new JWT token).*
+*(The user must log out and log back in to receive an updated session.)*
 
 ### 3. Database Backups
 To securely back up the PostgreSQL database (including all users, uploaded CSV sources, and GTFS data):
 
 ```bash
-# Replace your-db-user with your POSTGRES_USER
 docker exec -t via-mvp-postgres-1 pg_dump -U your-db-user -d via_mvp > via_mvp_backup_$(date +%F).sql
 ```
 To restore a backup:
@@ -224,54 +253,48 @@ cat via_mvp_backup_YYYY-MM-DD.sql | docker exec -i via-mvp-postgres-1 psql -U yo
 
 ---
 
-## Known Limitations & Security Notices
+## Known Limitations & Deferred Items
 
-This section documents deliberate MVP trade-offs and known architectural gaps. Each item is tracked for a future sprint. None of these are blocking issues for the internal VIA deployment, but all should be reviewed before any public-facing rollout.
+### 1. JWT Session Is Not Server-Side Revocable
 
----
+**Impact:** If an admin is removed, their session cookie remains valid until it expires (24-hour TTL). Logging out clears the cookie client-side and the backend clears it via `POST /api/logout`, but the server holds no blocklist.
 
-### 1. JWT Tokens Are Not Revocable After Logout
+**Mitigation:** 24-hour TTL limits exposure. Cookie is `HttpOnly` + `SameSite=Strict` — cannot be read by JavaScript or sent cross-site.
 
-**Impact:** If a user's session token is stolen or if an admin is removed, their existing JWT remains valid until it expires (24-hour TTL). Logging out only removes the token from `localStorage` client-side — the server has no blocklist.
-
-**Current Mitigation:** The 24-hour TTL limits the exposure window. The token is never exposed in URLs or cookies — it is stored in `localStorage` and sent as a `Bearer` header only.
-
-**Recommended Fix (Phase 12):** Implement a server-side token revocation table (`token_blocklist`) in PostgreSQL. On logout, insert the `jti` (JWT ID) claim. Add a middleware check against this table on every authenticated request. Alternatively, shorten the TTL to 1 hour and implement a sliding refresh token mechanism.
+**Future fix:** Add a `token_blocklist` table. On logout, insert the JWT `jti` claim. Check it in `authenticateToken`.
 
 ---
 
 ### 2. Conversation History Is Browser-Local Only
 
-**Impact:** All AI chat conversation history is stored exclusively in `localStorage`. Clearing browser data, switching browsers, or using a different device results in total loss of all conversation history. There is no server-side persistence for chat messages.
+**Impact:** All AI chat history is stored in `localStorage`. Clearing browser data or switching devices loses all history.
 
-**Scope:** This is by design for the MVP. The `chat_messages` table in `init.sql` is scaffolded but not yet wired to any backend endpoint.
+**Scope:** By design for MVP. The `chat_messages` table in `init.sql` is scaffolded but not yet wired to any endpoint.
 
-**Recommended Fix (Phase 12):** Wire `POST /api/chat` to persist each message exchange in `chat_messages` with the authenticated user's ID. Add `GET /api/chat/history` to restore conversations on login. Remove `localStorage` fallback once server sync is live.
+**Future fix:** Wire `POST /api/chat` to persist each exchange in `chat_messages` per authenticated user.
 
 ---
 
-### 3. Concurrent CSV Upload Race Condition
+### 3. Concurrent CSV Upload Race Condition — FIXED
 
-**Impact:** If two admin users upload a CSV with the **same filename** at the exact same moment, the `DROP TABLE IF EXISTS` → `CREATE TABLE` sequence could interleave.
-
-**Status: FIXED.** `sources.js` now acquires a PostgreSQL transaction-level advisory lock keyed on the table name before any `DROP / CREATE` sequence:
+The `DROP TABLE IF EXISTS` → `CREATE TABLE` sequence in `sources.js` now acquires a PostgreSQL advisory lock keyed on the table name before any DDL:
 
 ```sql
 SELECT pg_advisory_xact_lock(hashtext('bfi.' || $1))
 ```
 
-This serialises concurrent uploads of the same filename. The lock is automatically released on `COMMIT` or `ROLLBACK`.
+This serialises concurrent uploads of the same filename. Lock releases automatically on commit or rollback.
 
 ---
 
-### 4. Multi-Tenancy Is Scaffolded But Inactive
+### 4. TLS / HTTPS — Deferred to Deployment
 
-**Impact:** The `users` table has a `tenant_schema` column and a `via_transit` schema exists in the database, but neither is actively used. All application logic — queries, CSV uploads, GTFS data — is hardcoded to the `'bfi'` schema in `openai.js` and `sources.js`. The `tenant_schema` column is always ignored.
+The production Nginx config does not yet have TLS. Options:
+- **Certbot companion container** in `docker-compose.prod.yml`
+- **Cloud load balancer TLS termination** (AWS ALB, Cloudflare)
 
-**Scope:** This is correct and intentional for the VIA MVP. The platform is a **single-tenant internal tool** for VIA staff only. The multi-tenant scaffolding is preserved for potential future expansion to other public/private agencies.
-
-**Recommended Fix (if expanding):** Replace the hardcoded `'bfi'` schema references in `openai.js` (`pool.query('SET search_path TO bfi')`) and `sources.js` with a value derived from `req.user.tenant_schema` (already decoded from the JWT at login time).
+This must be resolved before any public-facing deployment.
 
 ---
 
-*Last reviewed: 2026-06-13. Maintained by Better Futures Institute engineering team.*
+*Last reviewed: 2026-06-14. Maintained by Better Futures Institute engineering team.*

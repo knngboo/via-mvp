@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { getActivePlugin } from 'Plugins';
-import SettingsModal from './SettingsModal';
 import bfiIconDark from '../assets/images/BFI_LogoIcon_Dark.svg';
 import sidebarCloseIcon from '../assets/images/Sidebar_close.svg';
 import iconChat from '../assets/images/Icons=Chat.svg';
@@ -422,7 +421,34 @@ export default function AppSidebar() {
         </div>
       </div>
       {settingsOpen && (
-        <SettingsModal onClose={() => setSettingsOpen(false)} />
+        <div
+          className="settings-overlay"
+          onClick={() => setSettingsOpen(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        >
+          <div onClick={e => e.stopPropagation()} style={{ background: '#1E1E1E', color: '#fff', borderRadius: '12px', padding: '28px 28px 24px', width: '320px', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600 }}>Account</h2>
+              <button onClick={() => setSettingsOpen(false)} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: '1.2rem' }}>✕</button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ background: '#2C2C2C', borderRadius: '8px', padding: '12px 14px' }}>
+                <div style={{ fontSize: '11px', color: '#888', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Signed in as</div>
+                <div style={{ fontWeight: 600, fontSize: '15px' }}>{user?.username}</div>
+              </div>
+              <div style={{ background: '#2C2C2C', borderRadius: '8px', padding: '12px 14px' }}>
+                <div style={{ fontSize: '11px', color: '#888', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Role</div>
+                <div style={{ fontWeight: 600, fontSize: '15px', textTransform: 'capitalize' }}>{user?.role || 'viewer'}</div>
+              </div>
+            </div>
+            <button
+              onClick={() => { setSettingsOpen(false); logout(); navigate('/login', { replace: true }); }}
+              style={{ marginTop: '20px', width: '100%', padding: '10px', borderRadius: '8px', border: 'none', background: '#333', color: '#fff', cursor: 'pointer', fontWeight: 500 }}
+            >
+              Sign Out
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -1,7 +1,6 @@
 import React, { useContext, useState } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { useNavigate, useLocation } from 'react-router-dom';
-import SettingsModal from './SettingsModal';
 
 // import all the legacy icons you copied over earlier!
 //
@@ -138,7 +137,28 @@ const Sidebar = () => {
                 </button>
             </div>
         </div>
-        {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+        {settingsOpen && (
+          <div
+            onClick={() => setSettingsOpen(false)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >
+            <div onClick={e => e.stopPropagation()} style={{ background: '#1E1E1E', color: '#fff', borderRadius: '12px', padding: '28px', width: '300px', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <h2 style={{ margin: 0, fontSize: '1.1rem' }}>Account</h2>
+                <button onClick={() => setSettingsOpen(false)} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: '1.2rem' }}>✕</button>
+              </div>
+              <div style={{ background: '#2C2C2C', borderRadius: '8px', padding: '12px', marginBottom: '12px' }}>
+                <div style={{ fontSize: '11px', color: '#888', marginBottom: '4px' }}>Signed in as</div>
+                <div style={{ fontWeight: 600 }}>{user?.username}</div>
+              </div>
+              <div style={{ background: '#2C2C2C', borderRadius: '8px', padding: '12px', marginBottom: '16px' }}>
+                <div style={{ fontSize: '11px', color: '#888', marginBottom: '4px' }}>Role</div>
+                <div style={{ fontWeight: 600, textTransform: 'capitalize' }}>{user?.role || 'viewer'}</div>
+              </div>
+              <button onClick={() => { logout(); setSettingsOpen(false); }} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: 'none', background: '#333', color: '#fff', cursor: 'pointer' }}>Sign Out</button>
+            </div>
+          </div>
+        )}
         </>
     );
 };

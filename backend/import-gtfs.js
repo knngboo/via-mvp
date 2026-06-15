@@ -135,10 +135,10 @@ export async function runImportIfNeeded(pool) {
 // Allow running manually via `node import-gtfs.js`
 if (process.argv[1] && process.argv[1] === fileURLToPath(import.meta.url)) {
     const pool = new Pool({
-        user: process.env.POSTGRES_USER || 'admin',
+        user: process.env.POSTGRES_USER,
         host: process.env.POSTGRES_HOST || 'localhost',
-        database: process.env.POSTGRES_DB || 'via_mvp',
-        password: process.env.POSTGRES_PASSWORD || 'admin',
+        database: process.env.POSTGRES_DB,
+        password: process.env.POSTGRES_PASSWORD,
         port: 5432,
     });
     runImportIfNeeded(pool).then(() => pool.end()).catch(console.error);

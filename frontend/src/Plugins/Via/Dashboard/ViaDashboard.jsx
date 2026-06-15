@@ -19,12 +19,7 @@ const API_BASE = '/api'; // Use the Vite proxy!
 const VIA_RED = '#CB2128';
 
 async function getJson(path) {
-  // Pass the token to ensure the request is authorized
-  const token = localStorage.getItem('via_token');
-  const headers = {};
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-
-  const res = await fetch(`${API_BASE}${path}`, { headers });
+  const res = await fetch(`${API_BASE}${path}`, { credentials: 'include' });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.message || `Request failed: ${res.status}`);

@@ -9,12 +9,15 @@ import jwt from 'jsonwebtoken';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import crypto from 'crypto';
+import cookieParser from 'cookie-parser';
+import pino from 'pino';
+import pinoHttp from 'pino-http';
 import { chatWithOpenAI } from './openai.js';
 import sourcesRouter from './sources.js';
 import statsRouter from './stats.js';
 import { runImportIfNeeded } from './import-gtfs.js';
 
-// destructure the connection pool from the pg package 
+// destructure the connection pool from the pg package
 //
 const { Pool } = pkg;
 
@@ -22,24 +25,49 @@ const { Pool } = pkg;
 //
 dotenv.config();
 
+// D1: Structured logger — pretty-print in dev, JSON in prod (for log aggregators)
+const logger = pino({
+    level: process.env.LOG_LEVEL || 'info',
+    ...(process.env.NODE_ENV !== 'production' && {
+        transport: { target: 'pino-pretty', options: { colorize: true } },
+    }),
+});
+
 // ── CRITICAL: Fail-fast on missing secrets ──────────────────────────────────
 // Deferring these checks to request time causes runtime crashes and empty-secret
 // vulnerabilities (Buffer.from('') === Buffer.from('')). Exit now if misconfigured.
 if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 16) {
-    console.error('FATAL: JWT_SECRET is not set or too short (min 16 chars). Exiting.');
+    process.stderr.write('FATAL: JWT_SECRET is not set or too short (min 16 chars). Exiting.\n');
     process.exit(1);
 }
 if (!process.env.ADMIN_SECRET || process.env.ADMIN_SECRET.length < 8) {
-    console.error('FATAL: ADMIN_SECRET is not set or too short (min 8 chars). Exiting.');
+    process.stderr.write('FATAL: ADMIN_SECRET is not set or too short (min 8 chars). Exiting.\n');
     process.exit(1);
 }
 // ────────────────────────────────────────────────────────────────────────────
 
 const app = express();
 
-// Security headers
-//
-app.use(helmet());
+// D1: Request-level logging — logs method, url, status, response time on every request
+app.use(pinoHttp({ logger }));
+
+// B5: Explicit Content Security Policy — bare helmet() uses restrictive defaults that
+// silently break Google Fonts, Leaflet tiles, and OpenAI SSE in production.
+app.use(helmet({
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc:     ["'self'"],
+            scriptSrc:      ["'self'"],
+            styleSrc:       ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+            fontSrc:        ["'self'", "https://fonts.gstatic.com"],
+            imgSrc:         ["'self'", "data:", "https://*.tile.openstreetmap.org"],
+            connectSrc:     ["'self'", "https://api.openai.com"],
+            frameSrc:       ["'none'"],
+            objectSrc:      ["'none'"],
+            upgradeInsecureRequests: [],
+        },
+    },
+}));
 
 // Environment-aware CORS — set ALLOWED_ORIGINS in .env for production
 //
@@ -55,6 +83,7 @@ app.use(cors({
     },
     credentials: true
 }));
+app.use(cookieParser());
 app.use(express.json({ limit: '1mb' }));
 
 // Rate limiters
@@ -78,11 +107,14 @@ const chatLimiter = rateLimit({
 // connect to postgres database
 //
 const pool = new Pool({
-    user: process.env.POSTGRES_USER || 'admin',
+    user: process.env.POSTGRES_USER,
     host: 'postgres',
-    database: process.env.POSTGRES_DB || 'via_mvp',
-    password: process.env.POSTGRES_PASSWORD || 'admin',
+    database: process.env.POSTGRES_DB,
+    password: process.env.POSTGRES_PASSWORD,
     port: 5432,
+    max: 20,                 // B1: hard cap — prevents connection exhaustion under load
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 5000,
 });
 
 // make database available to other files
@@ -149,7 +181,7 @@ app.post('/api/register', authLimiter, async (req, res) => {
 
         res.status(201).json(result.rows[0]);
     } catch (error) {
-        console.error(error);
+        logger.error({ err: error }, 'registration failed');
         res.status(500).json({ error: 'registration failed. username might already exist.' });
     }
 });
@@ -169,7 +201,11 @@ app.post('/api/login', authLimiter, async (req, res) => {
     }
 
     try {
-        const result = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
+        // B3: Explicit columns — never leak future fields (e.g. password_hash) into result accidentally
+        const result = await pool.query(
+            'SELECT id, username, password_hash, user_role, tenant_schema FROM users WHERE username = $1',
+            [username]
+        );
         const user = result.rows[0];
 
         // Always call bcrypt.compare — even for unknown users — to prevent timing attacks
@@ -181,14 +217,24 @@ app.post('/api/login', authLimiter, async (req, res) => {
         }
 
         const token = jwt.sign(
-            { id: user.id, username: user.username, role: user.user_role },
+            { id: user.id, username: user.username, role: user.user_role, tenant: user.tenant_schema || 'bfi' },
             process.env.JWT_SECRET,
             { expiresIn: '24h' }
         );
 
-        res.json({ token, username: user.username, role: user.user_role });
+        // C3: Set JWT in HttpOnly cookie — never accessible to JavaScript.
+        // sameSite:'strict' blocks CSRF. secure flag set in production only.
+        res.cookie('via_session', token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict',
+            maxAge: 24 * 60 * 60 * 1000, // 24 hours in ms
+        });
+
+        // Return user identity only (not the token — it lives in the cookie)
+        res.json({ username: user.username, role: user.user_role });
     } catch (error) {
-        console.error(error);
+        logger.error({ err: error }, 'login failed');
         res.status(500).json({ error: 'login failed' });
     }
 });
@@ -196,8 +242,11 @@ app.post('/api/login', authLimiter, async (req, res) => {
 // authentication middleware
 //
 const authenticateToken = (req, res, next) => {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
+    // C3: Read from HttpOnly cookie first; fall back to Authorization header
+    // for non-browser clients (API tools, curl, etc.)
+    const cookieToken = req.cookies?.via_session;
+    const headerToken = req.headers['authorization']?.split(' ')[1];
+    const token = cookieToken || headerToken;
 
     if (!token) return res.status(401).json({ error: 'Access token required' });
 
@@ -208,6 +257,12 @@ const authenticateToken = (req, res, next) => {
     });
 };
 
+// Logout — clear the session cookie
+app.post('/api/logout', (req, res) => {
+    res.clearCookie('via_session', { httpOnly: true, sameSite: 'strict' });
+    res.json({ ok: true });
+});
+
 // admin-only middleware — must be used AFTER authenticateToken
 //
 const requireAdmin = (req, res, next) => {
@@ -217,32 +272,27 @@ const requireAdmin = (req, res, next) => {
     next();
 };
 
-// Secure AI Chat Route
-//
-app.post('/api/chat', authenticateToken, async (req, res) => {
-    const { message, history } = req.body;
-    const customKey = req.get('x-openai-key');
-
-    if (!message) {
-        return res.status(400).json({ error: 'Message is required' });
-    }
-
-    try {
-        const result = await chatWithOpenAI({ pool, userMessage: message, history, customKey });
-        res.json(result);
-    } catch (error) {
-        console.error('AI Error:', error.message);
-        res.status(500).json({ error: 'AI request failed', details: error.message });
-    }
-});
-
 app.post('/api/chat/stream', authenticateToken, chatLimiter, async (req, res) => {
     const { message, history } = req.body;
-    const customKey = req.get('x-openai-key');
 
     if (!message) {
         return res.status(400).json({ error: 'Message is required' });
     }
+
+    // B6: Hard limits — prevent multi-MB payloads reaching OpenAI
+    if (typeof message !== 'string' || message.length > 4000) {
+        return res.status(400).json({ error: 'Message too long (max 4000 characters).' });
+    }
+    const safeHistory = Array.isArray(history)
+        ? history
+              .slice(-20)  // cap to last 20 exchanges
+              .filter(h => h && typeof h.from === 'string' && typeof h.text === 'string')
+        : [];
+
+    // C1: Extract tenant from JWT — validated against safe schema-name pattern
+    // to prevent any crafted JWT from injecting arbitrary schema names into SQL.
+    const SAFE_SCHEMA = /^[a-z][a-z0-9_]{0,62}$/;
+    const tenant = SAFE_SCHEMA.test(req.user?.tenant) ? req.user.tenant : 'bfi';
 
     // H-6: Set a hard timeout on the SSE connection so zombie streams don't accumulate.
     // 5 minutes is generous for even multi-tool AI responses.
@@ -252,15 +302,38 @@ app.post('/api/chat/stream', authenticateToken, chatLimiter, async (req, res) =>
     });
 
     try {
-        await chatWithOpenAI({ pool, userMessage: message, history, customKey, resForStream: res });
+        await chatWithOpenAI({ pool, userMessage: message, history: safeHistory, tenant, resForStream: res });
     } catch (error) {
-        console.error('AI Error:', error.message);
+        logger.error({ err: error }, 'AI stream error');
         res.status(500).end();
     }
 });
 
 // Data Upload Route — requireAdmin enforces server-side RBAC (not just client-side)
 app.use('/api/sources', authenticateToken, sourcesRouter(pool, requireAdmin));
+
+// C5: Feedback — authenticated users can flag bad AI responses
+app.post('/api/feedback', authenticateToken, async (req, res) => {
+    const { message_text } = req.body;
+
+    if (!message_text || typeof message_text !== 'string') {
+        return res.status(400).json({ error: 'message_text is required.' });
+    }
+    if (message_text.length > 10000) {
+        return res.status(400).json({ error: 'message_text too long (max 10,000 chars).' });
+    }
+
+    try {
+        const result = await pool.query(
+            'INSERT INTO feedback (user_id, message_text) VALUES ($1, $2) RETURNING id, reported_at',
+            [req.user.id, message_text.trim()]
+        );
+        res.status(201).json({ ok: true, id: result.rows[0].id, reported_at: result.rows[0].reported_at });
+    } catch (error) {
+        logger.error({ err: error }, 'feedback save failed');
+        res.status(500).json({ error: 'Failed to save feedback.' });
+    }
+});
 
 // GTFS Stats Route
 app.use('/api/stats', authenticateToken, statsRouter(pool));
@@ -271,6 +344,6 @@ app.listen(PORT, async () => {
     try {
         await runImportIfNeeded(pool);
     } catch (err) {
-        console.error('Auto-import failed:', err);
+        logger.error({ err }, 'Auto-import failed');
     }
 });

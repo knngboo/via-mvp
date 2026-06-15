@@ -1,5 +1,4 @@
 import AppSidebar from './AppSidebar';
-import '../styles/AppLayout.css';
 
 export default function AppLayout({ children }) {
   return (

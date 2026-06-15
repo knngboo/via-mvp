@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgis/postgis:15-3.3
+    image: postgres:16-alpine
     # Credentials loaded from .env — never hardcoded in this file.
     # Set POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB in backend/.env
     env_file:

@@ -28,23 +28,24 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- dataset access control table
--- NOTE (MVP): This table is created but NOT yet used — fine-grained dataset ACLs
--- are a future feature. Current access control is role-based (admin vs viewer) only.
+-- feedback table for flagged AI responses
+-- Stores user-submitted reports on individual bot messages.
+-- The message_text is stored server-side so we have a record even if
+-- the user clears their localStorage chat history.
 --
-CREATE TABLE IF NOT EXISTS datasets (
+CREATE TABLE IF NOT EXISTS feedback (
     id SERIAL PRIMARY KEY,
-    dataset_name VARCHAR(100) UNIQUE NOT NULL,
-    required_role VARCHAR(20) DEFAULT 'viewer',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    message_text TEXT,
+    reported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+CREATE INDEX IF NOT EXISTS idx_feedback_user_id ON feedback(user_id);
+CREATE INDEX IF NOT EXISTS idx_feedback_reported_at ON feedback(reported_at DESC);
 
 -- multi-tenant schemas
--- NOTE (MVP): via_transit schema is reserved for future use.
--- All data currently lives in the 'bfi' schema. tenant_schema column in users
--- is also unused — tenant is hardcoded as 'bfi' in openai.js.
+-- NOTE: via_transit schema removed (was reserved for future use but never written to).
+-- All data currently lives in the 'bfi' schema. Tenant isolation tracked in audit Phase C.
 --
-CREATE SCHEMA IF NOT EXISTS via_transit;
 CREATE SCHEMA IF NOT EXISTS bfi;
 
 -- Source metadata table for Data Hub

@@ -247,9 +247,9 @@ async function runPostgresTool(pool, tenant, name, args) {
     return { error: `Unknown tool: ${name}` };
 }
 
-async function callOpenAI(messages, customKey = null, resForStream = null) {
-    const apiKey = customKey || process.env.OPENAI_API_KEY;
-    if (!apiKey) throw new Error('No API key set.');
+async function callOpenAI(messages, resForStream = null) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) throw new Error('OPENAI_API_KEY is not configured on the server.');
 
     const isStreaming = !!resForStream;
 
@@ -292,9 +292,7 @@ async function callOpenAI(messages, customKey = null, resForStream = null) {
     return data.choices?.[0]?.message;
 }
 
-export async function chatWithOpenAI({ pool, userMessage, history = [], customKey = null, resForStream = null }) {
-    // Hardcoded tenant for MVP until JWT is fully wired to context
-    const tenant = 'bfi';
+export async function chatWithOpenAI({ pool, userMessage, history = [], tenant = 'bfi', resForStream = null }) {
 
     const messages = [{ role: 'system', content: SYSTEM_PROMPT }];
 
@@ -307,7 +305,7 @@ export async function chatWithOpenAI({ pool, userMessage, history = [], customKe
     // Autonomous tool-calling loop — fetch non-streaming, execute tools, repeat.
     // On the final round (no tool calls), fake-stream the text for the typing effect.
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-        const reply = await callOpenAI(messages, customKey);
+        const reply = await callOpenAI(messages);
 
         if (!reply.tool_calls || reply.tool_calls.length === 0) {
             // Final text response — stream it character-by-character for the typing effect

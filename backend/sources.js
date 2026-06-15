@@ -64,12 +64,28 @@ export default function (pool, requireAdmin) {
             return res.status(400).json({ message: 'CSV contained no data rows.' });
         }
 
-        const tenant = 'bfi';
+        // C1: Extract tenant from JWT and validate — never interpolate unsanitised schema names into SQL.
+        const SAFE_SCHEMA = /^[a-z][a-z0-9_]{0,62}$/;
+        const tenant = SAFE_SCHEMA.test(req.user?.tenant) ? req.user.tenant : 'bfi';
+
         // M-2: enforce 60-char table name limit to prevent PostgreSQL silent truncation
         //      and identifier collisions (PG max is 63 chars).
         const rawName = req.file.originalname.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
         const tableName = rawName.slice(0, 60);
-        const columns = Object.keys(rows[0]);
+        const rawColumns = Object.keys(rows[0]);
+
+        // B4: Sanitize CSV column names — they are untrusted user input and get
+        // interpolated into SQL identifiers. Even with quoting, a column name containing
+        // a double-quote character can break out of a quoted identifier.
+        const sanitizeColumnName = (name, idx) => {
+            const cleaned = String(name)
+                .replace(/[^a-zA-Z0-9_ ]/g, '')  // strip all non-safe chars (including quotes)
+                .trim()
+                .replace(/\s+/g, '_')             // normalise spaces to underscores
+                .slice(0, 63);                    // PostgreSQL max identifier length
+            return cleaned.length > 0 ? cleaned : `col_${idx}`;
+        };
+        const columns = rawColumns.map(sanitizeColumnName);
 
         // Use a transaction so the entire upload is atomic —
         // if anything fails, the old table is not dropped and no partial state is left.
@@ -153,8 +169,12 @@ export default function (pool, requireAdmin) {
 
     // List all uploaded sources (metadata) — any authenticated user can view
     router.get('/', async (req, res) => {
+        const SAFE_SCHEMA = /^[a-z][a-z0-9_]{0,62}$/;
+        const tenant = SAFE_SCHEMA.test(req.user?.tenant) ? req.user.tenant : 'bfi';
         try {
-            const result = await pool.query('SELECT * FROM bfi.sources_meta ORDER BY uploaded_at DESC');
+            const result = await pool.query(
+                `SELECT * FROM ${tenant}.sources_meta ORDER BY uploaded_at DESC`
+            );
             res.json(result.rows);
         } catch (error) {
             res.status(500).json({ message: error.message });
@@ -163,11 +183,13 @@ export default function (pool, requireAdmin) {
 
     // Delete a source — requires admin role
     router.delete('/:id', requireAdmin, async (req, res) => {
+        const SAFE_SCHEMA = /^[a-z][a-z0-9_]{0,62}$/;
+        const tenant = SAFE_SCHEMA.test(req.user?.tenant) ? req.user.tenant : 'bfi';
         try {
             const id = parseInt(req.params.id, 10);
             if (isNaN(id)) return res.status(400).json({ message: 'Invalid source id.' });
 
-            const metaResult = await pool.query('SELECT table_name FROM bfi.sources_meta WHERE id = $1', [id]);
+            const metaResult = await pool.query(`SELECT table_name FROM ${tenant}.sources_meta WHERE id = $1`, [id]);
             if (metaResult.rows.length === 0) {
                 return res.status(404).json({ message: 'Source not found.' });
             }
@@ -177,8 +199,8 @@ export default function (pool, requireAdmin) {
             const client = await pool.connect();
             try {
                 await client.query('BEGIN');
-                await client.query(`DROP TABLE IF EXISTS bfi."${tableName}";`);
-                await client.query('DELETE FROM bfi.sources_meta WHERE id = $1', [id]);
+                await client.query(`DROP TABLE IF EXISTS ${tenant}."${tableName}";`);
+                await client.query(`DELETE FROM ${tenant}.sources_meta WHERE id = $1`, [id]);
                 await client.query('COMMIT');
                 res.json({ deleted: true });
             } catch (err) {
@@ -196,6 +218,8 @@ export default function (pool, requireAdmin) {
     // Called immediately after a successful upload when the Submission Context modal is submitted.
     // Requires admin role (same as upload).
     router.patch('/:id/context', requireAdmin, async (req, res) => {
+        const SAFE_SCHEMA = /^[a-z][a-z0-9_]{0,62}$/;
+        const tenant = SAFE_SCHEMA.test(req.user?.tenant) ? req.user.tenant : 'bfi';
         try {
             const id = parseInt(req.params.id, 10);
             if (isNaN(id)) return res.status(400).json({ message: 'Invalid source id.' });
@@ -212,7 +236,7 @@ export default function (pool, requireAdmin) {
 
             // Only update the fields that are safe to store; ignore unknown keys.
             const result = await pool.query(`
-                UPDATE bfi.sources_meta
+                UPDATE ${tenant}.sources_meta
                 SET
                     project_name   = $1,
                     description    = $2,
