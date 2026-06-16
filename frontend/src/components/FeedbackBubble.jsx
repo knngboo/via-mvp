@@ -176,6 +176,22 @@ export default function FeedbackBubble({ setHighlightData, setChartData, restore
       }
 
       if (setLastBotResponse) setLastBotResponse(fullAnswer);
+
+      // Fire-and-forget: persist exchange server-side so history survives
+      // browser clears and works across devices. Never blocks the UI.
+      if (fullAnswer && trimmed) {
+        fetch('/api/chat/messages', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: [
+              { sender_role: 'user', content: trimmed },
+              { sender_role: 'bot',  content: fullAnswer },
+            ],
+          }),
+        }).catch(() => {}); // silent: never surface save errors to user
+      }
     } catch (err) {
       if (err?.name !== 'AbortError') {
         console.error('Chat error:', err);

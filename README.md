@@ -9,7 +9,7 @@ A secure, containerized full-stack application built for **Better Futures Instit
 | Layer | Technology | Details |
 |-------|-----------|---------|
 | **Frontend** | React 18 + Vite | `localhost:5173` — All API calls proxied through Vite dev server |
-| **Backend** | Node.js / Express | API gateway bound to `127.0.0.1:5001`. Cookie-authenticated. |
+| **Backend** | Python 3.12 / Flask | API gateway bound to `127.0.0.1:5001`. Cookie-authenticated. |
 | **Database** | PostgreSQL 16 | Dockerized, bound to `127.0.0.1:5432`. Schemas: `public`, `bfi` |
 | **AI** | OpenAI GPT-4o / GPT-4o-mini | Text-to-SQL: AI receives schema context and writes its own queries |
 | **Orchestration** | Docker Compose | Single-command startup for all three services |
@@ -70,13 +70,14 @@ Then log in at `http://localhost:5173/login`.
 
 ## Application Routes
 
-| URL | Page | Description |
-|-----|------|-------------|
-| `/login` | Login | Authenticate with username + password |
-| `/register` | Register | Create a new account (requires admin secret) |
-| `/chat` | AI Chat | Natural language interface to the transit database |
-| `/dashboard` | VIA Dashboard | Interactive San Antonio transit map + live DB stats |
-| `/sources` | Data Hub | Upload CSVs, browse ingested data, manage sources *(admin only)* |
+| URL | Page | Access | Description |
+|-----|------|--------|-------------|
+| `/login` | Login | Public | Authenticate with username + password |
+| `/register` | Register | Public | Create a new account (requires admin secret) |
+| `/dashboard` | VIA Dashboard | All users | Interactive San Antonio transit map + live DB stats |
+| `/chat` | AI Chat | Analyzer, Editor, Admin | Natural language interface to the transit database |
+| `/sources` | Data Hub | Editor, Admin | Upload CSVs, browse ingested data, manage sources |
+| `/admin` | Admin Panel | Admin only | Manage users and assign roles |
 
 ---
 
@@ -96,8 +97,10 @@ Then log in at `http://localhost:5173/login`.
 - Live stats in the header: Datasets, Routes, Stops, Trips
 - Gracefully handles an empty database — no errors if no data has been uploaded yet
 
-### 📁 Data Hub (`/sources`) — Admin only
+### 📁 Data Hub (`/sources`) — Editor + Admin
 - Drag-and-drop CSV upload with file type and size validation (50 MB max)
+- **Editor** uploads are marked `private` (visible only to uploader + admins)
+- **Admin** uploads are marked `shared` (visible to all authenticated users)
 - **Submission Context Modal** after upload:
   - **Data Domain** — dropdown with VIA-specific categories (Ridership, Routes, Operations, etc.)
   - **Project Name**, **Description**, **Coverage Dates**
@@ -105,7 +108,22 @@ Then log in at `http://localhost:5173/login`.
 - Live file table synced from PostgreSQL — persists across sessions and restarts
 - Model switcher — toggle between GPT-4o and GPT-4o-mini in the chat settings panel
 
-### 🔐 Security
+### 🔐 Role-Based Access Control
+
+Four roles enforced on both frontend (route guards) and backend (decorators):
+
+| Role | `/chat` | `/sources` | `/admin` | Can Delete Others' Sources |
+|------|---------|-----------|----------|---------------------------|
+| **admin** | ✅ | ✅ | ✅ | ✅ |
+| **editor** | ✅ | ✅ | ❌ | ❌ (own only) |
+| **analyzer** | ✅ | ❌ | ❌ | ❌ |
+| **viewer** | ❌ | ❌ | ❌ | ❌ |
+
+- All new registrations default to `admin` role
+- An admin demotes users from the `/admin` panel — no SQL required
+- Role changes take effect on the user's **next login**
+
+### 🔒 Security
 - **HttpOnly session cookie** — JWT never accessible to JavaScript. Immune to XSS token theft.
 - All sensitive backend ports bound exclusively to `127.0.0.1`
 - Cookie-based auth enforced on every authenticated API endpoint (`authenticateToken` middleware)
@@ -140,7 +158,7 @@ The AI automatically discovers all uploaded tables and their columns at query ti
 ## Development Notes
 
 - **Hot reload** is active in development — Vite HMR means most frontend changes apply without restarting Docker
-- **Backend restarts** are handled by `nodemon` — saving any backend `.js` file auto-restarts the Node server
+- **Backend restarts** are handled automatically when you save any backend `.py` file (Flask dev server with reloader)
 - To fully reset the database and start fresh:
   ```bash
   docker compose down -v
@@ -148,21 +166,23 @@ The AI automatically discovers all uploaded tables and their columns at query ti
   ```
   > ⚠️ `-v` wipes all data including user accounts and uploaded CSVs. You'll need to register again.
 - The `bfi` PostgreSQL schema is the primary tenant schema. Each uploaded CSV becomes its own dynamically-generated table within it.
-- Backend logs use **Pino** structured logging. In dev, logs are pretty-printed. In prod (`NODE_ENV=production`), logs are JSON for shipping to a log aggregator.
+- Backend logs are structured Python logging. Set `LOG_LEVEL=DEBUG` in `backend/.env` for verbose output.
 
 ---
 
 ## Running Tests
 
-The backend includes an integration smoke test suite using Node's built-in test runner:
+The backend includes an integration smoke test suite (pytest):
 
 ```bash
 # Backend must be running first (docker compose up)
-cd backend
-ADMIN_SECRET=your-admin-secret npm test
+# Run from via-mvp/ root:
+ADMIN_SECRET=your-admin-secret python -m pytest backend/tests/test_smoke.py -v
 ```
 
-Tests cover: registration guards, login + HttpOnly cookie, route protection, upload RBAC, feedback endpoint, and logout.
+Tests cover: registration guards, login + HttpOnly cookie, route protection, upload RBAC,
+feedback endpoint, logout, and the full 4-role RBAC system (admin endpoints, visibility filtering,
+chat access, delete ownership).
 
 ---
 
@@ -174,31 +194,37 @@ via-mvp/
 │   └── workflows/
 │       └── ci.yml              # GitHub Actions: runs tests + build check on every push
 ├── backend/
-│   ├── server.js               # Express app — auth, JWT middleware, chat, feedback, /api/me
-│   ├── sources.js              # CSV upload + PostgreSQL table creation + submission context
-│   ├── openai.js               # OpenAI SSE streaming + text-to-SQL agent
-│   ├── stats.js                # DB stats API (empty-state safe)
+│   ├── app.py               # Flask app — auth, JWT middleware, admin endpoints, chat, feedback
+│   ├── sources.py           # CSV upload + PostgreSQL table creation + submission context
+│   ├── openai_client.py     # OpenAI SSE streaming + text-to-SQL agent
+│   ├── stats.py             # DB stats API (empty-state safe)
+│   ├── db.py                # PostgreSQL connection pool + query helpers
 │   ├── tests/
-│   │   └── smoke.test.js       # Integration smoke test suite
+│   │   └── test_smoke.py    # Integration smoke test suite (pytest)
 │   ├── db/
-│   │   └── init.sql            # Database schema (users, feedback, bfi schema)
-│   ├── .env                    # 🔒 Secret config (gitignored)
-│   └── .env.example            # Template for new developers
+│   │   └── init.sql         # Database schema (users, feedback, bfi schema, sources_meta)
+│   ├── requirements.txt     # Python dependencies
+│   ├── .env                 # 🔒 Secret config (gitignored)
+│   └── .env.example         # Template for new developers
 ├── frontend/
 │   ├── src/
-│   │   ├── App.jsx                        # Route definitions + ProtectedRoute / AdminRoute
+│   │   ├── App.jsx                        # Route definitions + all 5 role guards
 │   │   ├── pages/
 │   │   │   ├── Login.jsx
 │   │   │   ├── Register.jsx
 │   │   │   ├── ChatPage.jsx               # AI chat interface + per-user history
+│   │   │   ├── AdminPage.jsx              # User management UI (admin only)
 │   │   │   └── hub/
 │   │   │       └── UploadPage.jsx         # Data Hub — upload + submission context
 │   │   ├── components/
+│   │   │   ├── AdminPanel.jsx             # User table with role dropdowns
 │   │   │   ├── AppSidebar.jsx             # Navigation sidebar + per-user chat history
 │   │   │   ├── FeedbackBubble.jsx         # AI chat + SSE streaming
 │   │   │   ├── MapView.jsx                # Raw Leaflet map component
-│   │   │   ├── SettingsModal.jsx          # Model selection + app settings
-│   │   │   └── PluginDashboardPage.jsx    # Dashboard shell
+│   │   │   ├── RoleGuard.jsx              # Conditional render by role
+│   │   │   └── SettingsModal.jsx          # Model selection + app settings
+│   │   ├── hooks/
+│   │   │   └── useRole.js                 # Role-checking hooks (useIsAdmin, useCanEdit, etc.)
 │   │   ├── Plugins/
 │   │   │   └── Via/                       # VIA-specific plugin (map + stats)
 │   │   ├── context/
@@ -208,7 +234,7 @@ via-mvp/
 │   │       └── api.js                     # All backend API calls (credentials: include)
 │   └── vite.config.js                     # Vite + proxy config
 ├── docker-compose.yml                     # Development compose file
-├── docker-compose.prod.yml                # Production compose file
+├── TESTING_GUIDE.md                       # Step-by-step testing walkthrough
 └── README.md
 ```
 
@@ -228,17 +254,10 @@ The application will be available on port `80`.
 
 ### 2. Role-Based Access Control (RBAC)
 
-Users registered with the Admin Secret receive the `admin` role automatically. Admins see the Data Hub tab and can upload data.
+Users registered with the Admin Secret receive the `admin` role automatically.
+To change a user's role, go to **http://localhost:5173/admin** (admin panel UI).
 
-To manually change a user's role:
-```bash
-# Access the running postgres container
-docker exec -it via-mvp-postgres-1 psql -U your-db-user -d via_mvp
-
-# Elevate to admin
-UPDATE users SET user_role = 'admin' WHERE username = 'target_user';
-```
-*(The user must log out and log back in to receive the updated role.)*
+The admin panel lets you promote or demote any other user with a dropdown. Changes take effect on the user's next login.
 
 ### 3. Database Backups
 

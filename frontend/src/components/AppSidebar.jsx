@@ -246,7 +246,7 @@ export default function AppSidebar() {
           <img src={iconChat} alt="" className="strip-icon" />
           {expanded && <span className="strip-label">New Chat</span>}
         </button>
-        {user?.role === 'admin' && (
+        {['admin', 'editor'].includes(user?.role) && (
           <button
             className={`icon-strip-btn${isSources ? ' icon-strip-btn--active' : ''}`}
             title="Sources"
@@ -254,6 +254,21 @@ export default function AppSidebar() {
           >
             <img src={iconSources} alt="" className="strip-icon" />
             {expanded && <span className="strip-label">Sources</span>}
+          </button>
+        )}
+        {user?.role === 'admin' && (
+          <button
+            className={`icon-strip-btn${pathname === '/admin' ? ' icon-strip-btn--active' : ''}`}
+            title="Admin Panel"
+            onClick={() => navigate('/admin')}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="strip-icon">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg>
+            {expanded && <span className="strip-label">Admin Panel</span>}
           </button>
         )}
         <button
