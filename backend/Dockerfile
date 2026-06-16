@@ -1,12 +1,25 @@
-# start container
+# Production backend container — Flask served by gunicorn (gthread workers so
+# SSE chat streaming isn't blocked by concurrent requests).
 #
-FROM node:20-alpine
+FROM python:3.12-slim
 WORKDIR /app
-# build tools needed to compile native modules (better-sqlite3 via gtfs)
-RUN apk add --no-cache python3 make g++
-RUN npm install -g pnpm
-COPY package*.json pnpm-lock.yaml* pnpm-workspace.yaml* ./
-RUN pnpm install
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# Install dependencies first (layer-cached unless requirements.txt changes)
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application source
 COPY . .
-EXPOSE 5000
-CMD ["pnpm", "start"]
+
+# Run as non-root user for security
+RUN useradd --create-home appuser
+USER appuser
+
+ENV NODE_ENV=production
+EXPOSE 5001
+CMD ["gunicorn", "--bind", "0.0.0.0:5001", \
+     "--worker-class", "gthread", "--workers", "2", "--threads", "4", \
+     "--timeout", "360", "app:app"]

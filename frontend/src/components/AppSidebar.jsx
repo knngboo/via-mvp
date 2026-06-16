@@ -1,13 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { useAuth, userKey } from '../context/AuthContext';
 import { getActivePlugin } from 'Plugins';
 import SettingsModal from './SettingsModal';
 import bfiIconDark from '../assets/images/BFI_LogoIcon_Dark.svg';
 import sidebarCloseIcon from '../assets/images/Sidebar_close.svg';
-import iconChat     from '../assets/images/Icons=Chat.svg';
-import iconSearch   from '../assets/images/Icons=Search.svg';
-import iconSources  from '../assets/images/Icons=Sources.svg';
+import iconChat from '../assets/images/Icons=Chat.svg';
+import iconSearch from '../assets/images/Icons=Search.svg';
+import iconSources from '../assets/images/Icons=Sources.svg';
 import iconBookmark from '../assets/images/Icons=Bookmark.svg';
 
 const AVATAR_PALETTE = [
@@ -21,10 +21,10 @@ const colorForName = (name) => {
 };
 
 const getSavedConvs = () => {
-  try { return JSON.parse(localStorage.getItem('buffi_saved_convs')) || []; } catch { return []; }
+  try { return JSON.parse(localStorage.getItem(userKey('saved_convs'))) || []; } catch { return []; }
 };
 const getActiveConv = () => {
-  try { return JSON.parse(localStorage.getItem('buffi_active_conv')) || null; } catch { return null; }
+  try { return JSON.parse(localStorage.getItem(userKey('active_conv'))) || null; } catch { return null; }
 };
 
 const convDisplayTitle = (conv) => {
@@ -67,8 +67,8 @@ export default function AppSidebar() {
   const menuRef = useRef(null);
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const { user } = useAuth();
-  const displayName = (user && user.name) || 'Test';
+  const { user, logout } = useAuth();
+  const displayName = (user && (user.name || user.username)) || 'User';
   const initial = (displayName.trim()[0] || '?').toUpperCase();
   const avatarColor = colorForName(displayName);
 
@@ -80,10 +80,13 @@ export default function AppSidebar() {
     };
     window.addEventListener('storage', refresh);
     window.addEventListener('focus', refresh);
+    // Instant refresh when ChatPage saves a conversation (New Chat, Switch)
+    window.addEventListener('buffi:conv-saved', refresh);
     const interval = setInterval(refresh, 1500);
     return () => {
       window.removeEventListener('storage', refresh);
       window.removeEventListener('focus', refresh);
+      window.removeEventListener('buffi:conv-saved', refresh);
       clearInterval(interval);
     };
   }, []);
@@ -99,7 +102,7 @@ export default function AppSidebar() {
     };
   }, []);
 
-  // Close any open item menu on outside click
+  // Close any open item menu on outside click or Escape
   useEffect(() => {
     if (!openMenuId) return;
     const handler = (e) => {
@@ -107,8 +110,15 @@ export default function AppSidebar() {
         setOpenMenuId(null);
       }
     };
+    const keyHandler = (e) => {
+      if (e.key === 'Escape') setOpenMenuId(null);
+    };
     document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    document.addEventListener('keydown', keyHandler);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      document.removeEventListener('keydown', keyHandler);
+    };
   }, [openMenuId]);
 
   const expand = () => {
@@ -124,8 +134,8 @@ export default function AppSidebar() {
     setRenamingId(null);
   };
 
-  const isChat      = pathname === '/chat';
-  const isSources   = pathname === '/upload';
+  const isChat = pathname === '/chat';
+  const isSources = pathname === '/sources';
   const isDashboard = pathname === '/dashboard';
 
   const activeId = activeConv && activeConv.id;
@@ -237,26 +247,41 @@ export default function AppSidebar() {
           {expanded && <span className="strip-label">New Chat</span>}
         </button>
         <button
-          className={`icon-strip-btn${isSources ? ' icon-strip-btn--active' : ''}`}
-          title="Sources"
-          onClick={() => navigate('/upload')}
+          className={`icon-strip-btn${isDashboard ? ' icon-strip-btn--active' : ''}`}
+          title="Dashboard"
+          onClick={() => navigate('/dashboard')}
         >
-          <img src={iconSources} alt="" className="strip-icon" />
-          {expanded && <span className="strip-label">Sources</span>}
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="strip-icon">
+            <rect x="3" y="3" width="7" height="9" rx="1" />
+            <rect x="14" y="3" width="7" height="5" rx="1" />
+            <rect x="14" y="12" width="7" height="9" rx="1" />
+            <rect x="3" y="16" width="7" height="5" rx="1" />
+          </svg>
+          {expanded && <span className="strip-label">Dashboard</span>}
         </button>
-        {activePlugin && (
+        {['admin', 'editor'].includes(user?.role) && (
           <button
-            className={`icon-strip-btn${isDashboard ? ' icon-strip-btn--active' : ''}`}
-            title={`${activePlugin.name} Dashboard`}
-            onClick={() => navigate('/dashboard')}
+            className={`icon-strip-btn${isSources ? ' icon-strip-btn--active' : ''}`}
+            title="Sources"
+            onClick={() => navigate('/sources')}
           >
-            <svg className="strip-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="3" width="7" height="9" />
-              <rect x="14" y="3" width="7" height="5" />
-              <rect x="14" y="12" width="7" height="9" />
-              <rect x="3" y="16" width="7" height="5" />
+            <img src={iconSources} alt="" className="strip-icon" />
+            {expanded && <span className="strip-label">Sources</span>}
+          </button>
+        )}
+        {user?.role === 'admin' && (
+          <button
+            className={`icon-strip-btn${pathname === '/admin' ? ' icon-strip-btn--active' : ''}`}
+            title="Admin Panel"
+            onClick={() => navigate('/admin')}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="strip-icon">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
             </svg>
-            {expanded && <span className="strip-label">{activePlugin.name} Dashboard</span>}
+            {expanded && <span className="strip-label">Admin Panel</span>}
           </button>
         )}
         <button
@@ -340,9 +365,9 @@ export default function AppSidebar() {
                     onClick={e => openItemMenu(e, conv)}
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="5" cy="12" r="1" fill="currentColor"/>
-                      <circle cx="12" cy="12" r="1" fill="currentColor"/>
-                      <circle cx="19" cy="12" r="1" fill="currentColor"/>
+                      <circle cx="5" cy="12" r="1" fill="currentColor" />
+                      <circle cx="12" cy="12" r="1" fill="currentColor" />
+                      <circle cx="19" cy="12" r="1" fill="currentColor" />
                     </svg>
                   </button>
                   {openMenuId === conv.id && (
@@ -398,12 +423,35 @@ export default function AppSidebar() {
                   <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06A2 2 0 1 1 4.17 16.93l.06-.06A1.7 1.7 0 0 0 4.57 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.64 8.89a1.7 1.7 0 0 0-.34-1.87l-.06-.06A2 2 0 1 1 7.07 4.13l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z" />
                 </svg>
               </button>
+              <button
+                type="button"
+                className="sidebar-user-settings"
+                style={{ marginLeft: '4px' }}
+                title="Sign Out"
+                onClick={() => {
+                  logout();
+                  navigate('/login', { replace: true });
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                  <polyline points="16 17 21 12 16 7" />
+                  <line x1="21" y1="12" x2="9" y2="12" />
+                </svg>
+              </button>
             </>
           )}
         </div>
       </div>
       {settingsOpen && (
-        <SettingsModal onClose={() => setSettingsOpen(false)} />
+        <SettingsModal
+          user={user}
+          onClose={() => setSettingsOpen(false)}
+          onLogout={() => {
+            logout();
+            navigate('/login', { replace: true });
+          }}
+        />
       )}
     </div>
   );

@@ -1,6 +1,42 @@
 import { useState } from 'react';
 import '../styles/FollowUpQuestions.css';
-import { OTHER_VALUE } from '../services/openai';
+
+export const OTHER_VALUE = '__OTHER__';
+
+export function parseAskBlock(text) {
+  if (!text || typeof text !== 'string') return null;
+  const match = text.match(/```ask\s*([\s\S]*?)```/);
+  if (!match) return null;
+  let json;
+  try {
+    json = JSON.parse(match[1].trim());
+  } catch {
+    return null;
+  }
+  const rawQuestions = Array.isArray(json) ? json : json?.questions;
+  if (!Array.isArray(rawQuestions) || rawQuestions.length === 0) return null;
+
+  const questions = rawQuestions.slice(0, 4).map((q) => {
+    const options = (Array.isArray(q?.options) ? q.options : [])
+      .slice(0, 6)
+      .map((o) =>
+        typeof o === 'string'
+          ? { label: o, description: '' }
+          : { label: String(o?.label ?? ''), description: String(o?.description ?? '') },
+      )
+      .filter((o) => o.label);
+
+    return {
+      question: String(q?.question || 'Question'),
+      header: q?.header ? String(q.header) : null,
+      multiSelect: Boolean(q?.multiSelect),
+      options,
+    };
+  });
+
+  if (questions.length === 0) return null;
+  return { questions };
+}
 
 // Claude-Code-style follow-up, shown one question at a time as a focused
 // takeover of the chat area. Picking a single-select option advances to the

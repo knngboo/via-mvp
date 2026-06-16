@@ -1,25 +1,13 @@
-// src/context/CsvContext.jsx
-import React, { createContext, useState, useContext, useEffect } from 'react';
+// src/components/CsvContext.jsx
+import React, { createContext, useState, useContext } from 'react';
 
 const CsvContext = createContext();
 
-const STORAGE_KEY = 'buffi_csv_batches';
 
-// Label of the demo batch that used to ship with the app — stripped out of
-// any localStorage that still has it.
-const LEGACY_SEED_LABEL = 'April 2nd 2025 3:51 PM Queue';
+// Batches start empty — sources are loaded from the database on mount.
+// Do NOT add hardcoded demo entries here; they appear as undeletable ghost files for real users.
+export const INITIAL_BATCHES = [];
 
-const loadBatches = () => {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((b) => b && b.label !== LEGACY_SEED_LABEL);
-  } catch {
-    return [];
-  }
-};
 
 export function CsvProvider({ children }) {
   const [csvData, setCsvData] = useState([]);
@@ -27,15 +15,7 @@ export function CsvProvider({ children }) {
   const [csvStats, setCsvStats] = useState(null);
   const [csvAnalysis, setCsvAnalysis] = useState(null);
   const [columnDescriptions, setColumnDescriptions] = useState({});
-  const [batches, setBatches] = useState(loadBatches);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(batches));
-    } catch {
-      // Likely QuotaExceededError — silently ignore so the UI still works.
-    }
-  }, [batches]);
+  const [batches, setBatches] = useState(INITIAL_BATCHES);
 
   return (
     <CsvContext.Provider value={{
@@ -55,18 +35,6 @@ export function CsvProvider({ children }) {
       {children}
     </CsvContext.Provider>
   );
-}
-
-// Convenience: flat list of every uploaded file across all batches.
-export function getAllUploadedFiles() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    const batches = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(batches)) return [];
-    return batches.flatMap((b) => (Array.isArray(b.files) ? b.files : []));
-  } catch {
-    return [];
-  }
 }
 
 // Custom hook for convenience

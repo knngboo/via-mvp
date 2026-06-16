@@ -1,0 +1,16 @@
+# Flask backend for VIA MVP (ported from the original Express/Node backend)
+Flask==3.0.3
+flask-cors==4.0.1
+Flask-Limiter==3.8.0
+psycopg2-binary==2.9.9
+bcrypt==4.2.0
+PyJWT==2.9.0
+requests==2.32.3
+python-dotenv==1.0.1
+gunicorn==23.0.0
+pytest==8.2.2
+# GTFS-realtime protobuf parsing (vehicle positions + alerts .pb feeds).
+# gtfs-realtime-bindings ships the compiled google.transit.gtfs_realtime_pb2
+# module generated from gtfs-realtime.proto.
+gtfs-realtime-bindings==1.0.0
+protobuf>=4.21,<6

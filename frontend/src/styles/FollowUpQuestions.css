@@ -331,7 +331,7 @@
   letter-spacing: 0.01em;
 }
 
-/* Shown while the structured `ask` block is still streaming in. */
+/* Shown while the structured \`ask\` block is still streaming in. */
 .followup-pending {
   font-size: 14px;
   font-weight: 380;

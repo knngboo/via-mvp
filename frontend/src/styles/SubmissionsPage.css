@@ -1,0 +1,255 @@
+/* ── Queue Page Shell ── */
+.queue-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 28px 32px 32px 32px;
+  box-sizing: border-box;
+  background: #fff;
+  overflow-y: auto;
+}
+
+/* ── Full-Page Drag Overlay ── */
+.page-drag-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(var(--Primary-600-rgb, 59, 130, 246), 0.08);
+  border: 3px dashed var(--Primary-400);
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.page-drag-overlay-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  color: var(--Primary-600);
+}
+
+.page-drag-overlay-title {
+  font-family: "Saans TRIAL", sans-serif;
+  font-size: 22px;
+  font-weight: 650;
+  color: var(--Grey-1000);
+}
+
+/* ── Compact Dropzone (always visible) ── */
+.sources-dropzone--compact {
+  min-height: unset;
+  height: 72px;
+  border-radius: 12px;
+  margin-bottom: 20px;
+  cursor: pointer;
+}
+
+.dropzone-compact-inner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: var(--Grey-500);
+}
+
+.dropzone-compact-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dropzone-compact-title {
+  font-family: "Saans TRIAL", sans-serif;
+  font-size: 14px;
+  font-weight: 550;
+  color: var(--Grey-800);
+}
+
+.dropzone-compact-sub {
+  font-family: "Saans TRIAL", sans-serif;
+  font-size: 12px;
+  color: var(--Grey-500);
+}
+
+/* ── Queue Section Header ── */
+.sources-queue-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.sources-queue-title {
+  font-family: "Saans TRIAL", sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--Grey-900);
+  margin: 0;
+}
+
+/* ── Filter Pills ── */
+.filter-pill-wrap {
+  position: relative;
+}
+
+.filter-active {
+  background: var(--Primary-50) !important;
+  border-color: var(--Primary-300) !important;
+  color: var(--Primary-700) !important;
+}
+
+.filter-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  background: #fff;
+  border: 1px solid var(--Grey-200);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.10);
+  z-index: 50;
+  min-width: 160px;
+  padding: 4px 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.filter-dropdown-item {
+  padding: 8px 14px;
+  background: none;
+  border: none;
+  text-align: left;
+  font-family: "Saans TRIAL", sans-serif;
+  font-size: 13px;
+  color: var(--Grey-800);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.filter-dropdown-item:hover {
+  background: var(--Grey-50);
+}
+
+.filter-dropdown-item.selected {
+  color: var(--Primary-600);
+  font-weight: 570;
+}
+
+/* ── Queue Batch ── */
+.queue-batch {
+  margin-bottom: 28px;
+}
+
+.queue-batch-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.queue-batch-title {
+  font-family: "Saans TRIAL", sans-serif;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--Grey-600);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.queue-batch-folder-tag {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: 1px solid var(--Grey-200);
+  border-radius: 16px;
+  background: #fff;
+  font-family: "Saans TRIAL", sans-serif;
+  font-size: 12px;
+  color: var(--Grey-700);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.queue-batch-folder-tag:hover {
+  background: var(--Grey-100);
+}
+
+.queue-batch-folder-remove {
+  margin-left: 2px;
+  font-size: 14px;
+  color: var(--Grey-500);
+  line-height: 1;
+}
+
+/* ── Queue Table ── */
+.queue-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: "Saans TRIAL", sans-serif;
+  font-size: 13px;
+}
+
+.queue-table thead tr {
+  border-bottom: 1px solid var(--Grey-200);
+}
+
+.queue-table th {
+  padding: 8px 12px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--Grey-500);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.queue-table th:hover {
+  color: var(--Grey-800);
+}
+
+.queue-row {
+  border-bottom: 1px solid var(--Grey-100);
+  transition: background 0.1s;
+}
+
+.queue-row:hover {
+  background: var(--Grey-50);
+}
+
+.queue-table td {
+  padding: 10px 12px;
+  vertical-align: middle;
+  color: var(--Grey-800);
+}
+
+.queue-col-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--Grey-900);
+  font-weight: 500;
+}
+
+.queue-col-folder {
+  color: var(--Grey-600);
+}
+
+.queue-col-status {
+  color: var(--Grey-700);
+}
+
+.queue-col-size {
+  color: var(--Grey-500);
+  white-space: nowrap;
+}
+
+.queue-no-results {
+  font-family: "Saans TRIAL", sans-serif;
+  font-size: 14px;
+  color: var(--Grey-500);
+  margin: 24px 0 0;
+  text-align: center;
+}
+

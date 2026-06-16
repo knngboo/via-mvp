@@ -1,5 +1,5 @@
+# Exclude these from the Docker build context to keep image build fast
 node_modules
-build
-.git
-Dockerfile
-.dockerignore
+dist
+.DS_Store
+*.local

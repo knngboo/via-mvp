@@ -1,0 +1,971 @@
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import MapView from '../components/MapView';
+import ChartView from '../components/ChartView';
+import FeedbackBubble from '../components/FeedbackBubble';
+import AppSidebar from '../components/AppSidebar';
+import { useAuth, userKey } from '../context/AuthContext';
+import bfiIcon from '../assets/images/BFI_LogoIcon.svg';
+import downloadIcon from '../assets/images/iconoir_download.svg';
+import html2canvas from 'html2canvas';
+import domtoimage from 'dom-to-image-more';
+import suiteDBIcon from '../assets/images/SuiteIcons-DB.svg';
+import chevronDownIcon from '../assets/images/Icons=chevron_down.svg';
+import moreHorizIcon from '../assets/images/Icons=More_Horizontal.svg';
+import suiteChartsIcon from '../assets/images/SuiteIcons-Charts.svg';
+import suiteDataIcon from '../assets/images/SuiteIcons-Data.svg';
+import suiteMapsIcon from '../assets/images/SuiteIcons-Maps.svg';
+
+
+// Inline SVG icons for the sidebar
+const IconEdit = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M13.0207 5.82839L15.8491 2.99996L20.7988 7.94971L17.9704 10.7781M13.0207 5.82839L3.41406 15.435C3.22659 15.6225 3.12134 15.8769 3.12134 16.1421V20.6776H7.65685C7.92207 20.6776 8.17642 20.5723 8.36388 20.3849L17.9704 10.7781M13.0207 5.82839L17.9704 10.7781" />
+  </svg>
+);
+
+const IconSearch = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="10.5" cy="10.5" r="6.5" />
+    <path d="M15.5 15.5L20 20" />
+  </svg>
+);
+
+const IconBookmark = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M5 6a2 2 0 012-2h10a2 2 0 012 2v14l-7-3.5L5 20V6z" />
+  </svg>
+);
+
+const IconDatabase = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <ellipse cx="12" cy="6" rx="8" ry="3" />
+    <path d="M4 6v6c0 1.657 3.582 3 8 3s8-1.343 8-3V6" />
+    <path d="M4 12v6c0 1.657 3.582 3 8 3s8-1.343 8-3v-6" />
+  </svg>
+);
+
+const IconDots = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="5" cy="12" r="1" fill="currentColor" />
+    <circle cx="12" cy="12" r="1" fill="currentColor" />
+    <circle cx="19" cy="12" r="1" fill="currentColor" />
+  </svg>
+);
+
+const IconBookmarkTop = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M5 6a2 2 0 012-2h10a2 2 0 012 2v14l-7-3.5L5 20V6z" />
+  </svg>
+);
+
+const IconBarMini = () => (
+  <svg className="viz-switcher-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true" style={{ color: '#FF5C17' }}>
+    <path d="M4 16V9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    <path d="M10 16V5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    <path d="M16 16V12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+  </svg>
+);
+
+const IconRadarMini = () => (
+  <svg className="viz-switcher-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true" style={{ color: '#8C94CE' }}>
+    <path d="M10 3l6 4v6l-6 4-6-4V7l6-4z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+    <path d="M10 3v14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity="0.8" />
+    <path d="M4 7l12 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity="0.8" />
+    <path d="M16 7L4 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity="0.8" />
+  </svg>
+);
+
+const IconPieMini = () => (
+  <svg className="viz-switcher-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true" style={{ color: '#00B89C' }}>
+    <path d="M10 3v7h7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M9.5 3.05A7 7 0 1016.95 10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+  </svg>
+);
+
+
+const _getStoredActive = () => {
+  try {
+    const data = JSON.parse(localStorage.getItem(userKey('active_conv'))) || {};
+    if (data.chatHistory) {
+      data.chatHistory = data.chatHistory.filter(
+        msg => !(msg.from === 'bot' && msg.text && (msg.text.startsWith('Sorry, there was an error') || msg.text.startsWith('Error:')))
+      );
+    }
+    return data;
+  } catch { return {}; }
+};
+const _getStoredSaved = () => {
+  try { return JSON.parse(localStorage.getItem(userKey('saved_convs'))) || []; } catch { return []; }
+};
+
+function ChatPage() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { user } = useAuth();
+
+  const [highlightData, setHighlightData] = useState(() => _getStoredActive().highlightData || null);
+  const [chartData, setChartData] = useState(() => _getStoredActive().chartData || null);
+  const lastChartDataRef = useRef(null);
+  const [chartType, setChartType] = useState(() => _getStoredActive().chartType || 'bar');
+  const [mapTitle, setMapTitle] = useState(() => _getStoredActive().mapTitle || 'New conversation');
+  const [viewMode] = useState('circle');
+  const [liveBuses, setLiveBuses] = useState(null); // { active, routeId } when live bus feed is on
+  const [heatStat, setHeatStat] = useState(''); // census ACS statistic id for the heat map ('' = off)
+  const [mapChosen, setMapChosen] = useState(false); // user explicitly opened the map (lets heat map work with no points)
+  const [isLoading, setIsLoading] = useState(false);
+  const [lastQuery, setLastQuery] = useState(() => _getStoredActive().lastQuery || '');
+  const [lastBotResponse, setLastBotResponse] = useState(() => _getStoredActive().lastBotResponse || '');
+  const [shareCopied, setShareCopied] = useState(false);
+  const [shareCopiedText, setShareCopiedText] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [dotsOpen, setDotsOpen] = useState(false);
+  const [tableOpen, setTableOpen] = useState(false);
+  const [undoState, setUndoState] = useState(null);
+  const [chatHistory, setChatHistory] = useState(() => _getStoredActive().chatHistory || []);
+  const [savedConversations, setSavedConversations] = useState(_getStoredSaved);
+  const [activeConvId, setActiveConvId] = useState(() => _getStoredActive().id || Date.now());
+  const [favorited, setFavorited] = useState(() => Boolean(_getStoredActive().favorited));
+  const [convSwitcherOpen, setConvSwitcherOpen] = useState(false);
+  const [chatDotsOpen, setChatDotsOpen] = useState(false);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState('');
+  // Important: keep visualization panel hidden until user explicitly opts in
+  const [vizPanelOpen, setVizPanelOpen] = useState(false);
+  const [vizPickerOpen, setVizPickerOpen] = useState(false);
+  const panelRef = useRef(null);
+  const dotsRef = useRef(null);
+  const shareRef = useRef(null);
+  const convSwitcherRef = useRef(null);
+  const chatDotsRef = useRef(null);
+  const undoTimerRef = useRef(null);
+
+  // Handle navigation from sidebar (Switch and New Chat)
+  useEffect(() => {
+    if (location.state?.newConv) {
+      handleNewConversation();
+      navigate('/chat', { replace: true, state: {} });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state?.newConv]);
+
+  useEffect(() => {
+    const targetId = location.state?.switchConvId;
+    if (!targetId) return;
+    if (targetId === activeConvId) {
+      navigate('/chat', { replace: true, state: {} });
+      return;
+    }
+    const target = savedConversations.find(c => c.id === targetId);
+    if (target) {
+      handleSwitchConversation(target);
+    }
+    navigate('/chat', { replace: true, state: {} });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state?.switchConvId]);
+
+  // On first mount: if localStorage has no history, try to restore from server.
+  // This recovers history across devices or after a browser clear.
+  // localStorage stays the fast cache — server is the fallback only.
+  useEffect(() => {
+    if (chatHistory.length > 0) return; // already have local history, skip
+    fetch('/api/chat/messages?limit=50', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : [])
+      .then(msgs => {
+        if (!Array.isArray(msgs) || msgs.length === 0) return;
+        setChatHistory(msgs.map(m => ({ from: m.sender_role, text: m.content })));
+      })
+      .catch(() => {}); // silent: never show restore errors to user
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  
+  // Handle custom events dispatched from AppSidebar
+  useEffect(() => {
+    const handler = (e) => {
+      const { action, id, payload } = (e && e.detail) || {};
+      if (!action || id == null) return;
+      const isActive = id === activeConvId;
+      if (action === 'toggle-favorite') {
+        if (isActive) {
+          setFavorited(f => !f);
+        } else {
+          setSavedConversations(prev =>
+            prev.map(c => c.id === id ? { ...c, favorited: !c.favorited } : c)
+          );
+        }
+      } else if (action === 'rename') {
+        const title = ((payload && payload.title) || '').trim();
+        if (!title) return;
+        if (isActive) {
+          setMapTitle(title);
+        } else {
+          setSavedConversations(prev =>
+            prev.map(c => c.id === id ? { ...c, mapTitle: title } : c)
+          );
+        }
+      } else if (action === 'delete') {
+        if (isActive) {
+          setActiveConvId(Date.now());
+          setChatHistory([]);
+          setMapTitle('New conversation');
+          setHighlightData(null);
+          setLiveBuses(null);
+          setHeatStat('');
+          setMapChosen(false);
+          setChartData(null);
+          setChartType('bar');
+          setLastQuery('');
+          setLastBotResponse('');
+          setFavorited(false);
+        } else {
+          setSavedConversations(prev => prev.filter(c => c.id !== id));
+        }
+      }
+    };
+    window.addEventListener('buffi:conv-action', handler);
+    return () => window.removeEventListener('buffi:conv-action', handler);
+  }, [activeConvId]);
+
+  // Read initial query from URL ?q= param (for shared links)
+  const initialQuery = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('q') || '';
+  }, []);
+
+  // Close dots dropdown on outside click
+  useEffect(() => {
+    if (!dotsOpen) return;
+    const handler = (e) => {
+      if (dotsRef.current && !dotsRef.current.contains(e.target)) setDotsOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [dotsOpen]);
+
+  // Close share dropdown on outside click
+  useEffect(() => {
+    if (!shareOpen) return;
+    const handler = (e) => {
+      if (shareRef.current && !shareRef.current.contains(e.target)) setShareOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [shareOpen]);
+
+  // Persist saved conversations to localStorage (namespaced by user)
+  useEffect(() => {
+    try { localStorage.setItem(userKey('saved_convs'), JSON.stringify(savedConversations)); } catch { }
+  }, [savedConversations]);
+
+  // Persist active conversation to localStorage (namespaced by user)
+  useEffect(() => {
+    try {
+      localStorage.setItem(userKey('active_conv'), JSON.stringify({
+        id: activeConvId, chatHistory, mapTitle, highlightData, chartData, chartType, lastQuery, lastBotResponse, favorited,
+      }));
+    } catch { }
+  }, [activeConvId, chatHistory, mapTitle, highlightData, chartData, chartType, lastQuery, lastBotResponse, favorited]);
+
+  // Close chat dots dropdown on outside click
+  useEffect(() => {
+    if (!chatDotsOpen) return;
+    const handler = (e) => {
+      if (chatDotsRef.current && !chatDotsRef.current.contains(e.target)) setChatDotsOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [chatDotsOpen]);
+
+  // Close conversation switcher on outside click
+  useEffect(() => {
+    if (!convSwitcherOpen) return;
+    const handler = (e) => {
+      if (convSwitcherRef.current && !convSwitcherRef.current.contains(e.target)) setConvSwitcherOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [convSwitcherOpen]);
+
+  // Reset chart type to bar whenever a new chart response arrives
+  const handleSetChartData = (data) => {
+    setChartData(data);
+    if (data) lastChartDataRef.current = data;
+    if (data) setChartType('bar');
+    if (data) setMapChosen(false); // a chart arrived — leave map mode
+  };
+
+  const hasDataViz = Boolean(chartData) || (Array.isArray(highlightData) && highlightData.length > 0) || Boolean(heatStat);
+
+  // Keep an always-available "last chart" snapshot, even when chartData is set
+  // from conversation restore or localStorage (not just from handleSetChartData).
+  useEffect(() => {
+    if (chartData) lastChartDataRef.current = chartData;
+  }, [chartData]);
+
+
+
+  const handleDownload = async () => {
+    if (!panelRef.current || isLoading) return;
+    const rawTitle = chartData?.title || mapTitle || 'visualization';
+    const filename = `${rawTitle.replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_')}.png`;
+    try {
+      if (chartData) {
+        // Charts: html2canvas works fine
+        const canvas = await html2canvas(panelRef.current, { useCORS: true, logging: false });
+        triggerDownload(canvas.toDataURL('image/png'), filename);
+      } else {
+        // Maps: dom-to-image-more uses the browser's SVG renderer which correctly
+        // handles Leaflet's CSS transforms, keeping tiles and overlays aligned.
+        const mapEl = panelRef.current.querySelector('.leaflet-container') || panelRef.current;
+        const dataUrl = await domtoimage.toPng(mapEl, {
+          width: mapEl.offsetWidth,
+          height: mapEl.offsetHeight,
+        });
+        triggerDownload(dataUrl, filename);
+      }
+    } catch (e) {
+      console.error('Download failed:', e);
+    }
+  };
+
+  const triggerDownload = (dataUrl, filename) => {
+    const link = document.createElement('a');
+    link.download = filename;
+    link.href = dataUrl;
+    link.click();
+  };
+
+  const handleCloseMap = () => {
+    // Hide panel only (do NOT clear the current visualization).
+    // Clearing is handled explicitly via "Clear View".
+    setVizPanelOpen(false);
+    setDotsOpen(false);
+    setShareOpen(false);
+  };
+
+  const handleClearView = () => {
+    // Save current state for undo
+    setUndoState({ mapTitle, highlightData, chartData });
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    undoTimerRef.current = setTimeout(() => setUndoState(null), 5000);
+
+    setMapTitle('New conversation');
+    setHighlightData(null);
+    setLiveBuses(null);
+    setHeatStat('');
+    setMapChosen(false);
+    handleSetChartData(null);
+    setTableOpen(false);
+    setVizPanelOpen(false);
+  };
+
+  const handleUndo = () => {
+    if (!undoState) return;
+    setMapTitle(undoState.mapTitle);
+    setHighlightData(undoState.highlightData);
+    handleSetChartData(undoState.chartData);
+    if (undoState.chatHistory) setChatHistory(undoState.chatHistory);
+    setUndoState(null);
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+  };
+
+  const handleClearConversation = () => {
+    setUndoState({ mapTitle, highlightData, chartData, chatHistory });
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    undoTimerRef.current = setTimeout(() => setUndoState(null), 5000);
+    setActiveConvId(Date.now());
+    setChatHistory([]);
+    setMapTitle('New conversation');
+    setHighlightData(null);
+    setLiveBuses(null);
+    setHeatStat('');
+    setMapChosen(false);
+    setChartData(null);
+    setChartType('bar');
+    setLastQuery('');
+    setLastBotResponse('');
+    setFavorited(false);
+    setTableOpen(false);
+    setChatDotsOpen(false);
+  };
+
+  const handleToggleFavorite = () => {
+    setFavorited(f => !f);
+    setChatDotsOpen(false);
+  };
+
+  const handleExportConversation = () => {
+    if (!chatHistory.length) return;
+    const text = chatHistory
+      .map(msg => msg.from === 'user' ? `You: ${msg.text}` : `Buffi: ${msg.text}`)
+      .join('\n\n');
+    copyToClipboard(text);
+    setChatDotsOpen(false);
+  };
+
+  const handleStartRename = () => {
+    setRenameValue(mapTitle);
+    setIsRenaming(true);
+    setChatDotsOpen(false);
+  };
+
+  const handleConfirmRename = () => {
+    if (renameValue.trim()) setMapTitle(renameValue.trim());
+    setIsRenaming(false);
+  };
+
+  const copyToClipboard = (text) => {
+    try {
+      navigator.clipboard.writeText(text);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+  };
+
+  const handleShareCopyLink = async () => {
+    if (!lastQuery) return;
+    const url = `${window.location.origin}${window.location.pathname}?q=${encodeURIComponent(lastQuery)}`;
+    copyToClipboard(url);
+    setShareCopied(true);
+    setTimeout(() => setShareCopied(false), 2000);
+    setShareOpen(false);
+  };
+
+  const handleCopyResponse = () => {
+    if (!lastBotResponse) return;
+    copyToClipboard(lastBotResponse);
+    setShareCopiedText(true);
+    setTimeout(() => setShareCopiedText(false), 2000);
+    setShareOpen(false);
+  };
+
+  const saveCurrentConv = () => {
+    if (chatHistory.length === 0) return;
+    const snapshot = { id: activeConvId, chatHistory, highlightData, chartData, chartType, lastQuery, lastBotResponse, mapTitle, favorited };
+    setSavedConversations(prev => {
+      const idx = prev.findIndex(c => c.id === activeConvId);
+      const next = idx >= 0 ? prev.map((c, i) => i === idx ? snapshot : c) : [...prev, snapshot];
+      // Write immediately so AppSidebar doesn't have to wait for the 1.5s poll
+      try { localStorage.setItem(userKey('saved_convs'), JSON.stringify(next)); } catch { }
+      return next;
+    });
+    // Signal AppSidebar to refresh its history list right now
+    window.dispatchEvent(new CustomEvent('buffi:conv-saved'));
+  };
+
+  const handleNewConversation = () => {
+    saveCurrentConv();
+    setActiveConvId(Date.now());
+    setChatHistory([]);
+    setHighlightData(null);
+    setLiveBuses(null);
+    setHeatStat('');
+    setMapChosen(false);
+    setChartData(null);
+    setChartType('bar');
+    setLastQuery('');
+    setLastBotResponse('');
+    setMapTitle('New conversation');
+    setFavorited(false);
+    setConvSwitcherOpen(false);
+  };
+
+  const handleSwitchConversation = (conv) => {
+    saveCurrentConv();
+    setSavedConversations(prev => prev.filter(c => c.id !== conv.id));
+    setActiveConvId(conv.id);
+    setChatHistory(conv.chatHistory);
+    setHighlightData(conv.highlightData || null);
+    setLiveBuses(null);
+    setHeatStat('');
+    setMapChosen(false);
+    setChartData(conv.chartData || null);
+    setChartType(conv.chartType || 'bar');
+    setLastQuery(conv.lastQuery || '');
+    setLastBotResponse(conv.lastBotResponse || '');
+    setMapTitle(conv.mapTitle || 'New conversation');
+    setFavorited(Boolean(conv.favorited));
+    setVizPanelOpen(false);
+    setConvSwitcherOpen(false);
+  };
+
+  const handleEmailShare = () => {
+    if (!lastQuery) return;
+    const url = `${window.location.origin}${window.location.pathname}?q=${encodeURIComponent(lastQuery)}`;
+    const subject = encodeURIComponent(`Insight: ${mapTitle}`);
+    const body = encodeURIComponent(`Check out this insight from Buffi:\n\n${lastBotResponse ? lastBotResponse.slice(0, 300) + '…' : ''}\n\nView it here: ${url}`);
+    window.open(`mailto:?subject=${subject}&body=${body}`);
+    setShareOpen(false);
+  };
+
+  const titleIconColor = chartData ? '#FF5C17' : '#00B89C';
+  const hasVisualization = hasDataViz;
+
+  const VIZ_PICKER_OPTIONS = [
+    { key: 'map', label: 'Map View of San Antonio' },
+    { key: 'pie', label: 'Pie Chart' },
+    { key: 'radar', label: 'Radar Chart' },
+    { key: 'bar', label: 'Bar Chart' },
+  ];
+
+  // Ensure the picker shows exactly one selected option.
+  // - If we have chartData, selection is the current chartType.
+  // - Else if we have map points, selection is MAP.
+  // - Else default to the current chartType (fallback to MAP if somehow missing).
+  const selectedVizKey = chartData
+    ? (chartType || 'bar')
+    : ((Array.isArray(highlightData) && highlightData.length > 0) || heatStat || mapChosen)
+      ? 'map'
+      : (chartType || 'map');
+
+  const restoreLastChartIfNeeded = () => {
+    if (chartData) return;
+    if (lastChartDataRef.current) {
+      // Use raw setter so we don't reset the chosen chart type
+      setChartData(lastChartDataRef.current);
+    }
+  };
+
+  const setVizMode = (mode) => {
+    setVizPanelOpen(true);
+    if (mode === 'map') {
+      setMapChosen(true);
+      setChartData(null); // show the map (and its census heat-map control) even with no points
+      return;
+    }
+    // Chart modes
+    setMapChosen(false);
+    restoreLastChartIfNeeded();
+    setChartType(mode);
+  };
+
+  return (
+    <div className="app-wrapper">
+      {/* 3 vertical columns — each owns its header + body so borders always align */}
+
+      {/* Column 1: Sidebar */}
+      <AppSidebar />
+
+      {/* Column 2: Chat */}
+      <div className="col-chat">
+        <div className="col-header col-header--chat">
+          <img src={bfiIcon} alt="Buffi" className="chat-header-logo" />
+          <span className="top-bar-brand">
+            {isRenaming ? (
+              <input
+                className="map-title-input"
+                value={renameValue}
+                autoFocus
+                onChange={e => setRenameValue(e.target.value)}
+                onBlur={handleConfirmRename}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') handleConfirmRename();
+                  if (e.key === 'Escape') setIsRenaming(false);
+                }}
+              />
+            ) : (
+              mapTitle === 'New conversation' ? 'Buffi V.02' : mapTitle
+            )}
+          </span>
+          <div className="chat-dots-wrapper" ref={chatDotsRef}>
+            {!vizPanelOpen && (
+              <button className="viz-empty-btn" onClick={() => setVizPickerOpen(true)}>
+                Show Visualization
+              </button>
+            )}
+            <button
+              className="top-bar-icon-btn"
+              title="More options"
+              onClick={() => setChatDotsOpen(o => !o)}
+            >
+              <img src={moreHorizIcon} alt="More" className="top-bar-icon" />
+            </button>
+            {chatDotsOpen && (
+              <div className="chat-dots-dropdown">
+                <button
+                  className="chat-dots-item"
+                  onClick={handleToggleFavorite}
+                  disabled={!chatHistory.length}
+                >
+                  {favorited ? 'Remove from favorites' : 'Add to favorites'}
+                </button>
+                <div className="chat-dots-divider" />
+                <button
+                  className="chat-dots-item"
+                  onClick={handleClearConversation}
+                  disabled={!chatHistory.length}
+                >
+                  Clear conversation
+                </button>
+                <button
+                  className="chat-dots-item"
+                  onClick={handleExportConversation}
+                  disabled={!chatHistory.length}
+                >
+                  Export conversation
+                </button>
+                <div className="chat-dots-divider" />
+                <button
+                  className="chat-dots-item"
+                  onClick={handleStartRename}
+                  disabled={mapTitle === 'New conversation'}
+                >
+                  Rename
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="chat-panel">
+          <FeedbackBubble
+            key={activeConvId}
+            chatHistory={chatHistory}
+            setChatHistory={setChatHistory}
+            setHighlightData={setHighlightData}
+            setChartData={handleSetChartData}
+            restoreChartData={setChartData}
+            setLiveBuses={setLiveBuses}
+            setHeatStat={setHeatStat}
+            setMapTitle={setMapTitle}
+            chartType={chartType}
+            setChartType={setChartType}
+            openVisualizationPanel={() => setVizPanelOpen(true)}
+            setIsLoading={setIsLoading}
+            setLastQuery={setLastQuery}
+            setLastBotResponse={setLastBotResponse}
+            initialQuery={chatHistory.length === 0 && savedConversations.length === 0 ? initialQuery : ''}
+          />
+        </div>
+      </div>
+
+      {/* Column 3: Visualization */}
+      {vizPanelOpen && (
+        <div className="col-map">
+          <div className="col-header col-header--map">
+            <div className="top-bar-map-left">
+              <img src={suiteDBIcon} alt="DB" className="top-bar-db-icon" />
+              <button className="map-title-close" onClick={handleCloseMap}>✕</button>
+              {isRenaming ? (
+                <input
+                  className="map-title-input"
+                  value={renameValue}
+                  autoFocus
+                  onChange={e => setRenameValue(e.target.value)}
+                  onBlur={handleConfirmRename}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') handleConfirmRename();
+                    if (e.key === 'Escape') setIsRenaming(false);
+                  }}
+                />
+              ) : (
+                <span className="map-title-text">{mapTitle}</span>
+              )}
+              <div className="conv-switcher-wrapper" ref={convSwitcherRef}>
+                <button
+                  className="map-title-chevron"
+                  onClick={() => setConvSwitcherOpen(o => !o)}
+                  title="Switch conversation"
+                >
+                  <img
+                    src={chevronDownIcon}
+                    alt="Switch conversation"
+                    className={`map-title-chevron-icon${convSwitcherOpen ? ' map-title-chevron-icon--open' : ''}`}
+                  />
+                </button>
+                {convSwitcherOpen && (
+                  <div className="conv-switcher-dropdown">
+                    <button className="conv-switcher-new" onClick={handleNewConversation}>
+                      + New conversation
+                    </button>
+                    {savedConversations.length > 0 && (
+                      <>
+                        <div className="conv-switcher-divider" />
+                        {[...savedConversations].reverse().map(conv => (
+                          <button
+                            key={conv.id}
+                            className="conv-switcher-item"
+                            onClick={() => handleSwitchConversation(conv)}
+                          >
+                            {conv.mapTitle || 'New conversation'}
+                          </button>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="top-bar-map-right">
+              <button className="top-bar-icon-btn top-bar-icon-btn--disabled" title="Bookmark" disabled>
+                <IconBookmarkTop />
+              </button>
+              <button className="top-bar-icon-btn" title="Download" onClick={handleDownload} disabled={isLoading || !lastQuery}>
+                <img src={downloadIcon} alt="download" className="top-bar-icon" />
+              </button>
+              <div className="dots-btn-wrapper" ref={dotsRef}>
+                <button className="top-bar-icon-btn" title="More" onClick={() => lastQuery && setDotsOpen(o => !o)} disabled={!lastQuery}>
+                  <IconDots />
+                </button>
+                {dotsOpen && (
+                  <div className="dots-dropdown">
+                    <button
+                      className="dots-dropdown-item"
+                      disabled={!chartData && !highlightData}
+                      onClick={() => { setTableOpen(true); setDotsOpen(false); }}
+                    >
+                      View Data Table
+                    </button>
+                    <div className="dots-dropdown-divider" />
+                    <button
+                      className="dots-dropdown-item"
+                      disabled={!hasVisualization}
+                      onClick={() => { handleClearView(); setDotsOpen(false); }}
+                    >
+                      Clear View
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className="share-btn-wrapper" ref={shareRef}>
+                <button
+                  className={`share-btn${shareCopied || shareCopiedText ? ' share-btn--copied' : ''}`}
+                  onClick={() => lastQuery && setShareOpen(o => !o)}
+                  disabled={!lastQuery}
+                  title={lastQuery ? 'Share options' : 'Ask a question first'}
+                >
+                  <span className="share-btn-label">
+                    {shareCopied ? '✓ Link copied!' : shareCopiedText ? '✓ Text copied!' : 'Share'}
+                  </span>
+                  <span className="share-btn-divider" />
+                  <span className="share-chevron-wrap">
+                    <svg width="12" height="8" viewBox="0 0 12 8" fill="none">
+                      <path d="M1 1.5L6 6.5L11 1.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </span>
+                </button>
+                {shareOpen && (
+                  <div className="share-dropdown">
+                    <button className="share-dropdown-item" onClick={handleShareCopyLink}>
+                      Copy link
+                    </button>
+                    <button className="share-dropdown-item" onClick={handleCopyResponse} disabled={!lastBotResponse}>
+                      Copy response text
+                    </button>
+                    <button className="share-dropdown-item" onClick={handleEmailShare} disabled={!lastQuery}>
+                      Send via email
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className={`map-panel${isLoading ? ' map-panel--loading' : ''}`} ref={panelRef}>
+            {isLoading ? (
+              <div className="loading-visual">
+                <div className="loading-visual-inner">
+                  <svg className="loading-spinner" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                    <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+                  </svg>
+                  <span className="loading-visual-text">Loading Visual...</span>
+                </div>
+                <div className="loading-progress-track">
+                  <div className="loading-progress-bar" />
+                </div>
+              </div>
+            ) : (!hasDataViz && !mapChosen) ? (
+              <div className="viz-empty-state">
+                <div className="viz-empty-icons">
+                  <img src={suiteChartsIcon} alt="Charts" className="viz-empty-icon" />
+                  <img src={suiteDataIcon} alt="Data" className="viz-empty-icon" />
+                  <img src={suiteMapsIcon} alt="Maps" className="viz-empty-icon" />
+                </div>
+                <div className="viz-empty-title">No data to visualize yet</div>
+                <div className="viz-empty-subtitle">Pick “Map View” to explore the census heat map, or ask a question that returns map points or chart data.</div>
+                <button className="viz-empty-btn" onClick={() => setVizPickerOpen(true)}>
+                  Change Visualization
+                </button>
+              </div>
+            ) : (
+              <div className="viz-panel-inner">
+                {chartData ? (
+                  <ChartView
+                    chartData={chartData}
+                    chartType={chartType}
+                    beforeBody={(
+                      <div className="viz-switcher-wrapper">
+                        <div className="viz-switcher viz-switcher--inline" role="tablist" aria-label="Visualization type">
+                          <button type="button" className={`viz-switcher-item${selectedVizKey === 'map' ? ' active' : ''}`} onClick={() => setVizMode('map')} aria-pressed={selectedVizKey === 'map'}>
+                            <img src={suiteMapsIcon} alt="" className="viz-switcher-icon" />
+                            <span>San Antonio Map</span>
+                          </button>
+                          <button type="button" className={`viz-switcher-item${selectedVizKey === 'bar' ? ' active' : ''}`} onClick={() => setVizMode('bar')} aria-pressed={selectedVizKey === 'bar'}>
+                            <IconBarMini />
+                            <span>Bar</span>
+                          </button>
+                          <button type="button" className={`viz-switcher-item${selectedVizKey === 'radar' ? ' active' : ''}`} onClick={() => setVizMode('radar')} aria-pressed={selectedVizKey === 'radar'}>
+                            <IconRadarMini />
+                            <span>Radar</span>
+                          </button>
+                          <button type="button" className={`viz-switcher-item${selectedVizKey === 'pie' ? ' active' : ''}`} onClick={() => setVizMode('pie')} aria-pressed={selectedVizKey === 'pie'}>
+                            <IconPieMini />
+                            <span>Pie</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  />
+                ) : (
+                  <div className="chart-view">
+                    <div className="chart-header">
+                      <span className="chart-title">San Antonio Map</span>
+                    </div>
+                    <div className="viz-switcher-wrapper">
+                      <div className="viz-switcher viz-switcher--inline" role="tablist" aria-label="Visualization type">
+                        <button type="button" className={`viz-switcher-item${selectedVizKey === 'map' ? ' active' : ''}`} onClick={() => setVizMode('map')} aria-pressed={selectedVizKey === 'map'}>
+                          <img src={suiteMapsIcon} alt="" className="viz-switcher-icon" />
+                          <span>San Antonio Map</span>
+                        </button>
+                        <button type="button" className={`viz-switcher-item${selectedVizKey === 'bar' ? ' active' : ''}`} onClick={() => setVizMode('bar')} aria-pressed={selectedVizKey === 'bar'}>
+                          <IconBarMini />
+                          <span>Bar</span>
+                        </button>
+                        <button type="button" className={`viz-switcher-item${selectedVizKey === 'radar' ? ' active' : ''}`} onClick={() => setVizMode('radar')} aria-pressed={selectedVizKey === 'radar'}>
+                          <IconRadarMini />
+                          <span>Radar</span>
+                        </button>
+                        <button type="button" className={`viz-switcher-item${selectedVizKey === 'pie' ? ' active' : ''}`} onClick={() => setVizMode('pie')} aria-pressed={selectedVizKey === 'pie'}>
+                          <IconPieMini />
+                          <span>Pie</span>
+                        </button>
+                      </div>
+                    </div>
+                    <div className="viz-map-body">
+                      <MapView
+                        highlightData={highlightData}
+                        viewMode={viewMode}
+                        liveBuses={liveBuses}
+                        heatStat={heatStat}
+                        setHeatStat={setHeatStat}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      {/* Undo Toast */}
+      {undoState && (
+        <div className="undo-toast">
+          <span className="undo-toast-text">View cleared</span>
+          <button className="undo-toast-btn" onClick={handleUndo}>Undo</button>
+        </div>
+      )}
+
+      {/* Data Table Modal */}
+      {tableOpen && (chartData || highlightData) && (
+        <div className="data-table-overlay" onClick={() => setTableOpen(false)}>
+          <div className="data-table-modal" onClick={e => e.stopPropagation()}>
+            <div className="data-table-header">
+              <span className="data-table-title">{chartData ? chartData.title : mapTitle}</span>
+              <button className="data-table-close" onClick={() => setTableOpen(false)}>✕</button>
+            </div>
+            <div className="data-table-body">
+              {chartData && chartData.data && chartData.data.length > 0 ? (
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      {Object.keys(chartData.data[0]).map(k => (
+                        <th key={k}>{k}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {chartData.data.map((row, i) => (
+                      <tr key={i}>
+                        {Object.values(row).map((v, j) => (
+                          <td key={j}>{typeof v === 'number' ? v.toLocaleString() : v}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : highlightData && highlightData.length > 0 ? (
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      {Object.keys(highlightData[0]).filter(k => !['color', 'marker_radius'].includes(k)).map(k => (
+                        <th key={k}>{k}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {highlightData.slice(0, 200).map((row, i) => (
+                      <tr key={i}>
+                        {Object.entries(row).filter(([k]) => !['color', 'marker_radius'].includes(k)).map(([k, v]) => (
+                          <td key={k}>{typeof v === 'number' ? v.toLocaleString() : String((v ?? ''))}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <p className="data-table-empty">No data available.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Visualization picker modal (right panel is hidden until user opts in) */}
+      {vizPickerOpen && (
+        <div className="viz-modal-overlay" onClick={() => setVizPickerOpen(false)}>
+          <div className="viz-modal" onClick={e => e.stopPropagation()}>
+            <div className="viz-modal-header">
+              <span className="viz-modal-title">Which way would you like me to visualize the data?</span>
+              <button className="viz-modal-close" onClick={() => setVizPickerOpen(false)}>✕</button>
+            </div>
+            <div className="viz-modal-list">
+              {VIZ_PICKER_OPTIONS.map((opt, i) => (
+                <div key={opt.key}>
+                  <button
+                    className={`viz-modal-option${selectedVizKey === opt.key ? ' viz-modal-option--selected' : ''}`}
+                    onClick={() => {
+                      setVizPanelOpen(true);
+                      if (opt.key === 'map') {
+                        setMapChosen(true);
+                        setChartData(null); // show the map + census heat-map control even with no points
+                      } else {
+                        setMapChosen(false);
+                        restoreLastChartIfNeeded();
+                        setChartType(opt.key);
+                      }
+                      setVizPickerOpen(false);
+                    }}
+                  >
+                    <span
+                      className={`viz-modal-radio${selectedVizKey === opt.key ? ' viz-modal-radio--selected' : ''}`}
+                    />
+                    <span className="viz-modal-label">{opt.label}</span>
+                  </button>
+                  {i < VIZ_PICKER_OPTIONS.length - 1 && <div className="viz-modal-divider" />}
+                </div>
+              ))}
+            </div>
+            <div className="viz-modal-footer">
+              <button className="viz-modal-skip" onClick={() => setVizPickerOpen(false)}>Skip</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default ChatPage;

@@ -1,5 +1,8 @@
-node_modules
-.git
-Dockerfile
-.dockerignore
+# Exclude from Docker build context
+__pycache__
+*.pyc
+.venv
+venv
 .env
+.DS_Store
+Deprecated

@@ -1,151 +1,286 @@
-import { useState } from 'react';
-import { OPENAI_MODELS, getStoredModel, setStoredModel } from '../services/openai';
-import { PLUGINS, getActivePluginId, setActivePluginId } from 'Plugins';
+import { useState, useEffect } from 'react';
+import { getActivePluginId, setActivePluginId, useTenantPlugins } from 'Plugins';
 
-const STORAGE_KEY = 'buffi_api_key';
+// E-2: Settings Modal — three sections:
+//   1. Account   — username and role display
+//   2. Active Agency — plugin switcher (filtered to this tenant's allowed plugins)
+//   3. AI Model  — which GPT model Buffi uses
+//
+// Props: user, onClose, onLogout
 
-const readApiKey = () => {
-  try { return localStorage.getItem(STORAGE_KEY) || ''; } catch { return ''; }
-};
+const MODEL_KEY      = 'buffi_model';
+const APIKEY_KEY     = 'buffi_openai_key';
+const ALLOWED_MODELS = [
+    { id: 'gpt-4o-mini', label: 'GPT-4o mini (faster, cheaper)' },
+    { id: 'gpt-4o',      label: 'GPT-4o (smarter, slower)'       },
+];
 
-const maskKey = (key) => {
-  if (!key) return '';
-  if (key.length <= 8) return '••••';
-  return `${key.slice(0, 4)}••••${key.slice(-4)}`;
-};
-
-export default function SettingsModal({ onClose }) {
-  const [savedKey, setSavedKey] = useState(readApiKey);
-  const [draft, setDraft] = useState('');
-  const [reveal, setReveal] = useState(false);
-  const [savedFlash, setSavedFlash] = useState(false);
-  const [model, setModel] = useState(getStoredModel);
-  const [activePlugin, setActivePlugin] = useState(getActivePluginId);
-
-  const handleModelChange = (e) => {
-    const value = e.target.value;
-    setModel(value);
-    setStoredModel(value);
-  };
-
-  const handlePluginChange = (e) => {
-    const value = e.target.value;
-    setActivePlugin(value);
-    setActivePluginId(value);
-  };
-
-  const handleSave = () => {
-    const value = draft.trim();
-    if (!value) return;
-    try { localStorage.setItem(STORAGE_KEY, value); } catch {}
-    setSavedKey(value);
-    setDraft('');
-    setSavedFlash(true);
-    setTimeout(() => setSavedFlash(false), 1500);
-  };
-
-  const handleClear = () => {
-    try { localStorage.removeItem(STORAGE_KEY); } catch {}
-    setSavedKey('');
-    setDraft('');
-  };
-
-  return (
-    <div className="settings-overlay" onClick={onClose}>
-      <div className="settings-modal" onClick={e => e.stopPropagation()}>
-        <div className="settings-header">
-          <span className="settings-title">Settings</span>
-          <button className="settings-close" onClick={onClose}>✕</button>
-        </div>
-        <div className="settings-body">
-          <div className="settings-section">
-            <label className="settings-label">OpenAI API Key</label>
-            <p className="settings-help">
-              Used for chat requests sent directly from this browser to OpenAI. Stored locally only.
-            </p>
-
-            {savedKey ? (
-              <div className="settings-current">
-                <span className="settings-current-label">Current:</span>
-                <code className="settings-current-value">
-                  {reveal ? savedKey : maskKey(savedKey)}
-                </code>
-                <button
-                  type="button"
-                  className="settings-link-btn"
-                  onClick={() => setReveal(r => !r)}
-                >
-                  {reveal ? 'Hide' : 'Show'}
-                </button>
-                <button
-                  type="button"
-                  className="settings-link-btn settings-link-btn--danger"
-                  onClick={handleClear}
-                >
-                  Clear
-                </button>
-              </div>
-            ) : (
-              <div className="settings-current settings-current--empty">No API key set</div>
-            )}
-
-            <div className="settings-input-row">
-              <input
-                type="password"
-                className="settings-input"
-                placeholder={savedKey ? 'Replace with a new key…' : 'sk-…'}
-                value={draft}
-                onChange={e => setDraft(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') handleSave(); }}
-                autoFocus
-              />
-              <button
-                type="button"
-                className="settings-save-btn"
-                onClick={handleSave}
-                disabled={!draft.trim()}
-              >
-                {savedFlash ? 'Saved ✓' : 'Save'}
-              </button>
-            </div>
-          </div>
-
-          <div className="settings-section">
-            <label className="settings-label" htmlFor="settings-model">Model</label>
-            <p className="settings-help">
-              The OpenAI model used to answer chat questions.
-            </p>
-            <select
-              id="settings-model"
-              className="settings-select"
-              value={model}
-              onChange={handleModelChange}
-            >
-              {OPENAI_MODELS.map(({ id, label }) => (
-                <option key={id} value={id}>{label}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="settings-section">
-            <label className="settings-label" htmlFor="settings-plugin">Active plugin</label>
-            <p className="settings-help">
-              Select an applicable plugin. When active, its dashboard appears in the sidebar.
-            </p>
-            <select
-              id="settings-plugin"
-              className="settings-select"
-              value={activePlugin}
-              onChange={handlePluginChange}
-            >
-              <option value="">None</option>
-              {PLUGINS.map(({ id, name }) => (
-                <option key={id} value={id}>{name}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+export function getStoredModel() {
+    try { return localStorage.getItem(MODEL_KEY) || 'gpt-4o-mini'; } catch { return 'gpt-4o-mini'; }
 }
+
+function setStoredModel(id) {
+    try { localStorage.setItem(MODEL_KEY, id); } catch { }
+    window.dispatchEvent(new CustomEvent('buffi:model-change', { detail: { id } }));
+}
+
+// User-supplied OpenAI API key. Stored locally in the browser and sent per-request
+// as the X-OpenAI-Key header — it overrides the server's env key for that user.
+export function getStoredApiKey() {
+    try { return localStorage.getItem(APIKEY_KEY) || ''; } catch { return ''; }
+}
+
+function setStoredApiKey(key) {
+    try {
+        if (key) localStorage.setItem(APIKEY_KEY, key);
+        else localStorage.removeItem(APIKEY_KEY);
+    } catch { }
+}
+
+export default function SettingsModal({ user, onClose, onLogout }) {
+    const { plugins: tenantPlugins } = useTenantPlugins();
+    const [activePlugin, setActivePlugin] = useState(getActivePluginId);
+    const [model, setModel]               = useState(getStoredModel);
+    const [apiKey, setApiKey]             = useState(getStoredApiKey);
+    const [keyStatus, setKeyStatus]       = useState('');
+
+    // Keep in sync if another tab changes the plugin.
+    useEffect(() => {
+        const refresh = () => setActivePlugin(getActivePluginId());
+        window.addEventListener('buffi:plugin-change', refresh);
+        return () => window.removeEventListener('buffi:plugin-change', refresh);
+    }, []);
+
+    const handlePluginChange = (e) => {
+        const id = e.target.value;
+        setActivePlugin(id);
+        setActivePluginId(id);
+    };
+
+    const handleModelChange = (e) => {
+        const id = e.target.value;
+        setModel(id);
+        setStoredModel(id);
+    };
+
+    const handleSaveKey = () => {
+        const trimmed = apiKey.trim();
+        setApiKey(trimmed);
+        setStoredApiKey(trimmed);
+        setKeyStatus(trimmed ? 'Saved ✓' : 'Cleared');
+        setTimeout(() => setKeyStatus(''), 1800);
+    };
+
+    const handleClearKey = () => {
+        setApiKey('');
+        setStoredApiKey('');
+        setKeyStatus('Cleared');
+        setTimeout(() => setKeyStatus(''), 1800);
+    };
+
+    const displayName = (user && (user.name || user.username)) || 'User';
+    const initial     = (displayName.trim()[0] || '?').toUpperCase();
+
+    return (
+        <div
+            style={{
+                position: 'fixed', inset: 0,
+                background: 'rgba(0,0,0,0.55)',
+                zIndex: 1000,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+            onClick={onClose}
+        >
+            <div
+                style={{
+                    background: '#1A1A1A',
+                    color: '#F2F2F2',
+                    borderRadius: '14px',
+                    padding: '28px',
+                    width: '340px',
+                    boxShadow: '0 16px 40px rgba(0,0,0,0.6)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '20px',
+                }}
+                onClick={(e) => e.stopPropagation()}
+            >
+                {/* Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h2 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 600 }}>Settings</h2>
+                    <button
+                        onClick={onClose}
+                        style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: '1.1rem', lineHeight: 1 }}
+                        title="Close"
+                    >
+                        ✕
+                    </button>
+                </div>
+
+                {/* Section: Account */}
+                <section style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <label style={labelStyle}>Account</label>
+                    <div style={{ ...cardStyle, gap: '12px' }}>
+                        <div style={avatarStyle}>{initial}</div>
+                        <div>
+                            <div style={{ fontWeight: 600, fontSize: '14px' }}>{displayName}</div>
+                            <div style={{ fontSize: '12px', color: '#888', textTransform: 'capitalize' }}>
+                                {user?.role || 'viewer'}
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                {/* Section: Active Agency */}
+                <section style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <label htmlFor="settings-plugin" style={labelStyle}>Active Agency</label>
+                    <p style={helpStyle}>Switches the dashboard to that agency's data view.</p>
+                    <select
+                        id="settings-plugin"
+                        style={selectStyle}
+                        value={activePlugin}
+                        onChange={handlePluginChange}
+                    >
+                        {tenantPlugins.length === 0 && (
+                            <option value="">No plugins assigned</option>
+                        )}
+                        {tenantPlugins.map(({ id, name }) => (
+                            <option key={id} value={id}>{name}</option>
+                        ))}
+                    </select>
+                </section>
+
+                {/* Section: AI Model */}
+                <section style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <label htmlFor="settings-model" style={labelStyle}>AI Model</label>
+                    <p style={helpStyle}>Which OpenAI model Buffi uses to answer questions.</p>
+                    <select
+                        id="settings-model"
+                        style={selectStyle}
+                        value={model}
+                        onChange={handleModelChange}
+                    >
+                        {ALLOWED_MODELS.map(({ id, label }) => (
+                            <option key={id} value={id}>{label}</option>
+                        ))}
+                    </select>
+                </section>
+
+                {/* Section: OpenAI API Key */}
+                <section style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <label htmlFor="settings-apikey" style={labelStyle}>OpenAI API Key</label>
+                    <p style={helpStyle}>
+                        Use your own OpenAI key for Buffi. Stored only in this browser and sent
+                        securely with each chat request. Leave blank to use the server default.
+                    </p>
+                    <input
+                        id="settings-apikey"
+                        type="password"
+                        autoComplete="off"
+                        spellCheck={false}
+                        placeholder="sk-..."
+                        style={selectStyle}
+                        value={apiKey}
+                        onChange={(e) => setApiKey(e.target.value)}
+                    />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button onClick={handleSaveKey} style={primaryBtnStyle}>Save</button>
+                        <button onClick={handleClearKey} style={ghostBtnStyle}>Clear</button>
+                        {keyStatus && (
+                            <span style={{ fontSize: '12px', color: '#7ED957' }}>{keyStatus}</span>
+                        )}
+                    </div>
+                </section>
+
+                {/* Sign out */}
+                <button
+                    onClick={() => { onLogout(); onClose(); }}
+                    style={{
+                        marginTop: '4px',
+                        padding: '10px',
+                        borderRadius: '8px',
+                        border: 'none',
+                        background: '#2C2C2C',
+                        color: '#F2F2F2',
+                        cursor: 'pointer',
+                        fontWeight: 500,
+                        fontSize: '14px',
+                    }}
+                >
+                    Sign Out
+                </button>
+            </div>
+        </div>
+    );
+}
+
+// ── Shared style tokens ───────────────────────────────────────────────────────
+const labelStyle = {
+    fontSize: '11px',
+    fontWeight: 600,
+    textTransform: 'uppercase',
+    letterSpacing: '0.06em',
+    color: '#888',
+};
+
+const helpStyle = {
+    margin: 0,
+    fontSize: '12px',
+    color: '#666',
+    lineHeight: 1.5,
+};
+
+const cardStyle = {
+    background: '#2C2C2C',
+    borderRadius: '8px',
+    padding: '12px 14px',
+    display: 'flex',
+    alignItems: 'center',
+};
+
+const avatarStyle = {
+    width: '36px',
+    height: '36px',
+    borderRadius: '50%',
+    background: '#CB2128',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontWeight: 700,
+    fontSize: '16px',
+    flexShrink: 0,
+};
+
+const selectStyle = {
+    width: '100%',
+    padding: '9px 12px',
+    borderRadius: '8px',
+    border: '1px solid #333',
+    background: '#2C2C2C',
+    color: '#F2F2F2',
+    fontSize: '14px',
+    cursor: 'pointer',
+    outline: 'none',
+};
+
+const primaryBtnStyle = {
+    padding: '8px 16px',
+    borderRadius: '8px',
+    border: 'none',
+    background: '#CB2128',
+    color: '#fff',
+    cursor: 'pointer',
+    fontWeight: 600,
+    fontSize: '13px',
+};
+
+const ghostBtnStyle = {
+    padding: '8px 14px',
+    borderRadius: '8px',
+    border: '1px solid #333',
+    background: 'transparent',
+    color: '#CCC',
+    cursor: 'pointer',
+    fontWeight: 500,
+    fontSize: '13px',
+};

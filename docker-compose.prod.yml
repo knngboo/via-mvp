@@ -1,0 +1,60 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    # Credentials loaded from .env — never hardcoded in this file.
+    # Set POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB in backend/.env
+    env_file:
+      - ./backend/.env
+    # Port NOT exposed to the host in production.
+    # The backend container reaches postgres via Docker's internal network only.
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./backend/db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "pg_isready", "-d", "${POSTGRES_DB:-via_mvp}", "-U", "${POSTGRES_USER:-admin}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    # Credentials loaded from .env
+    env_file:
+      - ./backend/.env
+    environment:
+      # Override host to use Docker's internal DNS name
+      POSTGRES_HOST: postgres
+      PORT: 5001
+      # US Census ACS key baked in so the map heat-map works out-of-the-box.
+      # Override by setting CENSUS_API_KEY in the environment before deploying.
+      CENSUS_API_KEY: ${CENSUS_API_KEY:-f805edcf2467e1a44d01133ce2018dae58f3b5cb}
+    # Port NOT exposed to the host in production.
+    # Nginx proxies /api to the backend via Docker's internal network.
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      # Use Python (always present in the image) rather than wget/curl, which
+      # are not installed in python:3.12-slim.
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:5001/health').status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pg_data:

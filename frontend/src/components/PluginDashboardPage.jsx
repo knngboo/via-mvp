@@ -2,70 +2,88 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AppSidebar from './AppSidebar';
 import { getActivePlugin } from 'Plugins';
-import { getAllUploadedFiles } from '../context/CsvContext';
+import { useCsv } from '../context/CsvContext';
 import bfiIcon from '../assets/images/BFI_LogoIcon.svg';
+import apiService from '../services/api';
 import '../App.css';
-import '../styles/PluginDashboard.css';
 
-// Host page for the active plugin's dashboard. It owns the page chrome (sidebar
-// + header) and a "visualization layer" container, then renders whichever
-// plugin is active, passing in the uploaded CSV files.
 export default function PluginDashboardPage() {
-  const navigate = useNavigate();
-  const [plugin, setPlugin] = useState(getActivePlugin);
-  const [files, setFiles] = useState(getAllUploadedFiles);
+    const navigate = useNavigate();
+    const [plugin, setPlugin] = useState(getActivePlugin);
+    const [stats, setStats] = useState(null);
 
-  useEffect(() => {
-    const refresh = () => {
-      setPlugin(getActivePlugin());
-      setFiles(getAllUploadedFiles());
-    };
-    window.addEventListener('buffi:plugin-change', refresh);
-    window.addEventListener('focus', refresh);
-    return () => {
-      window.removeEventListener('buffi:plugin-change', refresh);
-      window.removeEventListener('focus', refresh);
-    };
-  }, []);
+    // We use our MVP's useCsv context to safely pass uploaded data to the plugin!
+    const { csvData, fileName } = useCsv();
+    const files = useMemo(() => {
+        return csvData ? [{ name: fileName, data: csvData }] : [];
+    }, [csvData, fileName]);
 
-  // No plugin active → there's nothing to show. Send the user back. (The sidebar
-  // only surfaces this route when a plugin is active, but guard direct nav too.)
-  useEffect(() => {
-    if (!plugin) navigate('/upload', { replace: true });
-  }, [plugin, navigate]);
+    useEffect(() => {
+        const refresh = () => setPlugin(getActivePlugin());
+        window.addEventListener('buffi:plugin-change', refresh);
+        window.addEventListener('focus', refresh);
+        return () => {
+            window.removeEventListener('buffi:plugin-change', refresh);
+            window.removeEventListener('focus', refresh);
+        };
+    }, []);
 
-  // Run the plugin's own parse logic over the uploaded files. The plugin owns
-  // this transform (in its ParseLogic/ folder); the host just calls it and hands
-  // the result to the dashboard. A plugin with no parse logic yields `null`.
-  const data = useMemo(() => {
-    try {
-      return typeof plugin?.parse === 'function' ? plugin.parse(files) : null;
-    } catch (err) {
-      console.error(`[plugin:${plugin?.id}] parse failed:`, err);
-      return null;
-    }
-  }, [plugin, files]);
+    useEffect(() => {
+        apiService.getStats()
+            .then(data => setStats(data))
+            .catch(err => console.error("Failed to load stats:", err));
+    }, []);
 
-  if (!plugin) return null;
+    // If there's no active plugin, redirect to the Data Hub (Sources page)
+    useEffect(() => {
+        if (!plugin) navigate('/sources', { replace: true });
+    }, [plugin, navigate]);
 
-  const Dashboard = plugin.Dashboard;
+    // Pass the CSV files through the plugin's custom ParseLogic
+    const data = useMemo(() => {
+        try {
+            return typeof plugin?.parse === 'function' ? plugin.parse(files) : null;
+        } catch (err) {
+            console.error(`[plugin:${plugin?.id}] parse failed:`, err);
+            return null;
+        }
+    }, [plugin, files]);
 
-  return (
-    <div className="app-wrapper">
-      <AppSidebar />
-      <div className="col-chat">
-        <div className="col-header col-header--chat">
-          <img src={bfiIcon} alt="Buffi" className="chat-header-logo" />
-          <span className="top-bar-brand">{plugin.name} Dashboard</span>
+    if (!plugin) return null;
+
+    const Dashboard = plugin.Dashboard;
+
+    return (
+        <div className="app-wrapper">
+            {/* We will build AppSidebar in the very next step! */}
+            <AppSidebar />
+            <div className="col-chat">
+                <div className="col-header col-header--chat" style={{ justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <img src={bfiIcon} alt="Buffi" className="chat-header-logo" />
+                        <span className="top-bar-brand">{plugin.name} Dashboard</span>
+                    </div>
+                    {stats && (
+                        <div style={{ display: 'flex', gap: '16px', fontSize: '13px', color: 'var(--Grey-600)', fontWeight: 570 }}>
+                            <span title="Uploaded Datasets" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span style={{ fontSize: '16px' }}>📂</span> {stats.sources || 0} Datasets
+                            </span>
+                            <span title="Transit Routes" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span style={{ fontSize: '16px' }}>🚌</span> {stats.routes || 0} Routes
+                            </span>
+                            <span title="Transit Stops" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span style={{ fontSize: '16px' }}>🚏</span> {stats.stops || 0} Stops
+                            </span>
+                            <span title="Scheduled Trips" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span style={{ fontSize: '16px' }}>⏱️</span> {(stats.trips || 0).toLocaleString()} Trips
+                            </span>
+                        </div>
+                    )}
+                </div>
+                <div className="plugin-dashboard-panel" style={{ flex: 1, overflow: 'hidden' }}>
+                    <Dashboard data={data} files={files} />
+                </div>
+            </div>
         </div>
-        <div className="plugin-dashboard-panel">
-          {/* Visualization layer — the plugin's dashboard renders the parsed
-              data (and the raw files, if it needs them). */}
-          <div className="plugin-viz-layer">
-            <Dashboard data={data} files={files} />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+    );
 }
