@@ -19,6 +19,10 @@ services:
       - "127.0.0.1:5001:5001"
     volumes:
       - ./backend:/app
+    # Dev: auto-reload gunicorn when backend code changes (the volume mount above
+    # makes host edits visible). Prevents stale-code surprises after editing .py files.
+    command: ["gunicorn", "--bind", "0.0.0.0:5001", "--worker-class", "gthread",
+              "--workers", "2", "--threads", "4", "--timeout", "360", "--reload", "app:app"]
     # backend/.env is OPTIONAL: the defaults below let a freshly-cloned repo run
     # out-of-the-box. If the file exists, it's still loaded (e.g. for OPENAI_API_KEY);
     # the keys defined under `environment` below take precedence over it.
