@@ -370,9 +370,6 @@ export default function UploadPage() {
           displayBatches.map((batch) => {
             const batchFiles = batch.files.map(f => ({ ...f, hasError: f.status === 'Error' }));
             const filtered = getFilteredFiles(batchFiles, batch.id);
-          displayBatches.map((batch) => {
-            const batchFiles = batch.files.map(f => ({ ...f, hasError: f.status === 'Error' }));
-            const filtered = getFilteredFiles(batchFiles, batch.id);
             const batchSort = batchSortState[batch.id] || { col: null, dir: 'asc' };
             if (filtered.length === 0) return null;
             return (
@@ -506,18 +503,13 @@ export default function UploadPage() {
             const folder = formData.dataDomain || formData.projectName || 'Uncategorized';
             const tier = 'Tier 2: Internal Operational';
             const fileId = Date.now() + 1;
-            const tier = 'Tier 2: Internal Operational';
-            const fileId = Date.now() + 1;
             const newBatch = {
               id: Date.now(),
               label: formatBatchDate(),
               files: [{
                 id: fileId,
-                id: fileId,
                 name: pendingUpload.fileName,
                 folder,
-                status: 'Ready',
-                tier,
                 status: 'Ready',
                 tier,
                 size: pendingUpload.fileSize ? formatBytes(pendingUpload.fileSize) : 'N/A',
@@ -539,7 +531,6 @@ export default function UploadPage() {
           setContextOpen(false);
           setPendingUpload(null);
           setPendingCsvData(null);
-          setPendingFile(null);
           setPendingFile(null);
         }}
         fileName={pendingUpload?.fileName || ''}

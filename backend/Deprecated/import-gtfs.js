@@ -1,88 +1,78 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
-import pkg from 'pg';
+import mongoose from 'mongoose';
 import csv from 'csvtojson';
 
-const { Pool } = pkg;
-
+// load environment variables
+//
 dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const GTFS_DIR = path.join(__dirname, 'google_transit');
 const BATCH_SIZE = 5000;
 
+// when run on the host (outside docker), fall back to the compose mongo port
+//
+const mongoURI = process.env.MONGO_URI
+    || 'mongodb://via:via_dev_password@localhost:27017/viadata?authSource=admin';
 
-
-// We only import the 4 tables we actually query to keep it fast and clean
+// fields to cast per file; everything else stays a string so ids like
+// stop_id and trip_id join cleanly across collections
+//
 const FILES = {
+    'agency.txt': { collection: 'agency', floats: [], ints: [] },
+    'calendar.txt': {
+        collection: 'calendar',
+        floats: [],
+        ints: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+    },
+    'calendar_dates.txt': { collection: 'calendar_dates', floats: [], ints: ['exception_type'] },
+    'feed_info.txt': { collection: 'feed_info', floats: [], ints: [] },
+    'routes.txt': { collection: 'routes', floats: [], ints: ['route_type'] },
+    'shapes.txt': {
+        collection: 'shapes',
+        floats: ['shape_pt_lat', 'shape_pt_lon', 'shape_dist_traveled'],
+        ints: ['shape_pt_sequence']
+    },
+    'stop_times.txt': {
+        collection: 'stop_times',
+        floats: ['shape_dist_traveled'],
+        ints: ['stop_sequence', 'pickup_type', 'drop_off_type', 'timepoint']
+    },
     'stops.txt': {
-        table: 'stops',
-        columns: ['stop_id', 'stop_name', 'stop_lat', 'stop_lon', 'location_type', 'wheelchair_boarding'],
+        collection: 'stops',
         floats: ['stop_lat', 'stop_lon'],
         ints: ['location_type', 'wheelchair_boarding']
     },
-    'routes.txt': {
-        table: 'routes',
-        columns: ['route_id', 'route_short_name', 'route_long_name', 'route_type'],
-        floats: [],
-        ints: ['route_type']
-    },
+    'transfers.txt': { collection: 'transfers', floats: [], ints: ['transfer_type', 'min_transfer_time'] },
     'trips.txt': {
-        table: 'trips',
-        columns: ['trip_id', 'route_id', 'service_id', 'trip_headsign', 'direction_id', 'wheelchair_accessible', 'bikes_allowed'],
+        collection: 'trips',
         floats: [],
         ints: ['direction_id', 'wheelchair_accessible', 'bikes_allowed']
-    },
-    'stop_times.txt': {
-        table: 'stop_times',
-        columns: ['trip_id', 'arrival_time', 'departure_time', 'stop_id', 'stop_sequence', 'pickup_type', 'drop_off_type', 'timepoint'],
-        floats: [],
-        ints: ['stop_sequence', 'pickup_type', 'drop_off_type', 'timepoint']
     }
 };
 
 function castRow(row, { floats, ints }) {
     for (const f of floats) {
-        if (row[f] !== undefined && row[f] !== '') row[f] = parseFloat(row[f]);
-        else row[f] = null;
+        if (row[f] !== undefined) row[f] = parseFloat(row[f]);
     }
     for (const f of ints) {
-        if (row[f] !== undefined && row[f] !== '') row[f] = parseInt(row[f], 10);
-        else row[f] = null;
+        if (row[f] !== undefined) row[f] = parseInt(row[f], 10);
     }
     return row;
 }
 
-async function importFile(client, fileName, spec) {
-    await client.query(`TRUNCATE TABLE ${spec.table} CASCADE;`);
-    
+async function importFile(db, fileName, spec) {
+    const coll = db.collection(spec.collection);
+    await coll.deleteMany({});
+
     let batch = [];
     let total = 0;
 
     const flush = async () => {
         if (batch.length === 0) return;
-        
-        const params = [];
-        const valuePlaceholders = [];
-        
-        let paramIndex = 1;
-        for (const row of batch) {
-            const rowPlaceholders = [];
-            for (const col of spec.columns) {
-                params.push(row[col]);
-                rowPlaceholders.push(`$${paramIndex++}`);
-            }
-            valuePlaceholders.push(`(${rowPlaceholders.join(', ')})`);
-        }
-
-        const query = `
-            INSERT INTO ${spec.table} (${spec.columns.join(', ')})
-            VALUES ${valuePlaceholders.join(', ')}
-            ON CONFLICT DO NOTHING;
-        `;
-        
-        await client.query(query, params);
+        await coll.insertMany(batch, { ordered: false });
         total += batch.length;
         batch = [];
     };
@@ -92,54 +82,51 @@ async function importFile(client, fileName, spec) {
             .fromFile(path.join(GTFS_DIR, fileName))
             .subscribe(async (row) => {
                 castRow(row, spec);
+
+                // GeoJSON point so stops support $near queries
+                //
+                if (spec.collection === 'stops' && row.stop_lat !== undefined && row.stop_lon !== undefined) {
+                    row.location = { type: 'Point', coordinates: [row.stop_lon, row.stop_lat] };
+                }
+
                 batch.push(row);
                 if (batch.length >= BATCH_SIZE) await flush();
             }, reject, resolve);
     });
 
     await flush();
-    console.log(`${spec.table}: imported ${total} rows`);
+    console.log(`${spec.collection}: imported ${total} documents`);
 }
 
-export async function runImportIfNeeded(pool) {
-    const client = await pool.connect();
-    try {
-        // Check if data already exists
-        const res = await client.query("SELECT count(*) FROM stops");
-        if (parseInt(res.rows[0].count, 10) > 0) {
-            console.log('GTFS data already loaded. Skipping import.');
-            return;
-        }
-        
-        console.log('GTFS tables are empty. Starting import from CSV...');
-        await client.query('BEGIN');
-        
-        for (const [fileName, spec] of Object.entries(FILES)) {
-            await importFile(client, fileName, spec);
-        }
+async function createIndexes(db) {
+    await db.collection('stops').createIndex({ stop_id: 1 }, { unique: true });
+    await db.collection('stops').createIndex({ location: '2dsphere' });
+    await db.collection('routes').createIndex({ route_id: 1 }, { unique: true });
+    await db.collection('trips').createIndex({ trip_id: 1 }, { unique: true });
+    await db.collection('trips').createIndex({ route_id: 1 });
+    await db.collection('stop_times').createIndex({ trip_id: 1, stop_sequence: 1 });
+    await db.collection('stop_times').createIndex({ stop_id: 1 });
+    await db.collection('shapes').createIndex({ shape_id: 1, shape_pt_sequence: 1 });
+    await db.collection('calendar').createIndex({ service_id: 1 });
+    await db.collection('calendar_dates').createIndex({ service_id: 1 });
+    console.log('indexes created');
+}
 
-        await client.query('COMMIT');
-        console.log('GTFS import complete!');
-    } catch (err) {
-        await client.query('ROLLBACK');
-        if (err.code === 'ENOENT') {
-            console.log('google_transit folder not found or missing CSVs. Skipping import.');
-        } else {
-            console.error('GTFS import failed:', err);
-        }
-    } finally {
-        client.release();
+async function main() {
+    await mongoose.connect(mongoURI);
+    console.log('MongoDB Connected');
+    const db = mongoose.connection.db;
+
+    for (const [fileName, spec] of Object.entries(FILES)) {
+        await importFile(db, fileName, spec);
     }
+
+    await createIndexes(db);
+    await mongoose.disconnect();
+    console.log('GTFS import complete');
 }
 
-// Allow running manually via `node import-gtfs.js`
-if (process.argv[1] && process.argv[1] === fileURLToPath(import.meta.url)) {
-    const pool = new Pool({
-        user: process.env.POSTGRES_USER,
-        host: process.env.POSTGRES_HOST || 'localhost',
-        database: process.env.POSTGRES_DB,
-        password: process.env.POSTGRES_PASSWORD,
-        port: 5432,
-    });
-    runImportIfNeeded(pool).then(() => pool.end()).catch(console.error);
-}
+main().catch((err) => {
+    console.error('GTFS import failed:', err);
+    process.exit(1);
+});
