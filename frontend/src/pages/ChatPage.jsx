@@ -111,6 +111,8 @@ function ChatPage() {
   const [mapTitle, setMapTitle] = useState(() => _getStoredActive().mapTitle || 'New conversation');
   const [viewMode] = useState('circle');
   const [liveBuses, setLiveBuses] = useState(null); // { active, routeId } when live bus feed is on
+  const [heatStat, setHeatStat] = useState(''); // census ACS statistic id for the heat map ('' = off)
+  const [mapChosen, setMapChosen] = useState(false); // user explicitly opened the map (lets heat map work with no points)
   const [isLoading, setIsLoading] = useState(false);
   const [lastQuery, setLastQuery] = useState(() => _getStoredActive().lastQuery || '');
   const [lastBotResponse, setLastBotResponse] = useState(() => _getStoredActive().lastBotResponse || '');
@@ -193,6 +195,8 @@ function ChatPage() {
           setMapTitle('New conversation');
           setHighlightData(null);
           setLiveBuses(null);
+          setHeatStat('');
+          setMapChosen(false);
           setChartData(null);
           setChartType('bar');
           setLastQuery('');
@@ -272,9 +276,10 @@ function ChatPage() {
     setChartData(data);
     if (data) lastChartDataRef.current = data;
     if (data) setChartType('bar');
+    if (data) setMapChosen(false); // a chart arrived — leave map mode
   };
 
-  const hasDataViz = Boolean(chartData) || (Array.isArray(highlightData) && highlightData.length > 0);
+  const hasDataViz = Boolean(chartData) || (Array.isArray(highlightData) && highlightData.length > 0) || Boolean(heatStat);
 
   // Keep an always-available "last chart" snapshot, even when chartData is set
   // from conversation restore or localStorage (not just from handleSetChartData).
@@ -332,6 +337,8 @@ function ChatPage() {
     setMapTitle('New conversation');
     setHighlightData(null);
     setLiveBuses(null);
+    setHeatStat('');
+    setMapChosen(false);
     handleSetChartData(null);
     setTableOpen(false);
     setVizPanelOpen(false);
@@ -356,6 +363,8 @@ function ChatPage() {
     setMapTitle('New conversation');
     setHighlightData(null);
     setLiveBuses(null);
+    setHeatStat('');
+    setMapChosen(false);
     setChartData(null);
     setChartType('bar');
     setLastQuery('');
@@ -440,6 +449,8 @@ function ChatPage() {
     setChatHistory([]);
     setHighlightData(null);
     setLiveBuses(null);
+    setHeatStat('');
+    setMapChosen(false);
     setChartData(null);
     setChartType('bar');
     setLastQuery('');
@@ -456,6 +467,8 @@ function ChatPage() {
     setChatHistory(conv.chatHistory);
     setHighlightData(conv.highlightData || null);
     setLiveBuses(null);
+    setHeatStat('');
+    setMapChosen(false);
     setChartData(conv.chartData || null);
     setChartType(conv.chartType || 'bar');
     setLastQuery(conv.lastQuery || '');
@@ -491,7 +504,7 @@ function ChatPage() {
   // - Else default to the current chartType (fallback to MAP if somehow missing).
   const selectedVizKey = chartData
     ? (chartType || 'bar')
-    : (Array.isArray(highlightData) && highlightData.length > 0)
+    : ((Array.isArray(highlightData) && highlightData.length > 0) || heatStat || mapChosen)
       ? 'map'
       : (chartType || 'map');
 
@@ -506,11 +519,12 @@ function ChatPage() {
   const setVizMode = (mode) => {
     setVizPanelOpen(true);
     if (mode === 'map') {
-      // Prefer map when we have points; otherwise keep whatever is currently shown.
-      if (Array.isArray(highlightData) && highlightData.length > 0) setChartData(null);
+      setMapChosen(true);
+      setChartData(null); // show the map (and its census heat-map control) even with no points
       return;
     }
     // Chart modes
+    setMapChosen(false);
     restoreLastChartIfNeeded();
     setChartType(mode);
   };
@@ -601,6 +615,7 @@ function ChatPage() {
             setChartData={handleSetChartData}
             restoreChartData={setChartData}
             setLiveBuses={setLiveBuses}
+            setHeatStat={setHeatStat}
             setMapTitle={setMapTitle}
             chartType={chartType}
             setChartType={setChartType}
@@ -747,7 +762,7 @@ function ChatPage() {
                   <div className="loading-progress-bar" />
                 </div>
               </div>
-            ) : !hasDataViz ? (
+            ) : (!hasDataViz && !mapChosen) ? (
               <div className="viz-empty-state">
                 <div className="viz-empty-icons">
                   <img src={suiteChartsIcon} alt="Charts" className="viz-empty-icon" />
@@ -755,7 +770,7 @@ function ChatPage() {
                   <img src={suiteMapsIcon} alt="Maps" className="viz-empty-icon" />
                 </div>
                 <div className="viz-empty-title">No data to visualize yet</div>
-                <div className="viz-empty-subtitle">Ask a question that returns map points or chart data, and it’ll appear here.</div>
+                <div className="viz-empty-subtitle">Pick “Map View” to explore the census heat map, or ask a question that returns map points or chart data.</div>
                 <button className="viz-empty-btn" onClick={() => setVizPickerOpen(true)}>
                   Change Visualization
                 </button>
@@ -819,6 +834,8 @@ function ChatPage() {
                         highlightData={highlightData}
                         viewMode={viewMode}
                         liveBuses={liveBuses}
+                        heatStat={heatStat}
+                        setHeatStat={setHeatStat}
                       />
                     </div>
                   </div>
@@ -907,9 +924,10 @@ function ChatPage() {
                     onClick={() => {
                       setVizPanelOpen(true);
                       if (opt.key === 'map') {
-                        // Only switch to map if we actually have map points to show
-                        if (Array.isArray(highlightData) && highlightData.length > 0) setChartData(null);
+                        setMapChosen(true);
+                        setChartData(null); // show the map + census heat-map control even with no points
                       } else {
+                        setMapChosen(false);
                         restoreLastChartIfNeeded();
                         setChartType(opt.key);
                       }

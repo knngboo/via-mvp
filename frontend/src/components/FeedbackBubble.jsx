@@ -39,7 +39,7 @@ function deriveMaptitle(userText) {
 
 
 
-export default function FeedbackBubble({ setHighlightData, setChartData, restoreChartData, setMapTitle, chartType, setChartType, openVisualizationPanel, setIsLoading, setLastQuery, setLastBotResponse, initialQuery, chatHistory, setChatHistory, setLiveBuses }) {
+export default function FeedbackBubble({ setHighlightData, setChartData, restoreChartData, setMapTitle, chartType, setChartType, openVisualizationPanel, setIsLoading, setLastQuery, setLastBotResponse, initialQuery, chatHistory, setChatHistory, setLiveBuses, setHeatStat }) {
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingPhase, setLoadingPhase] = useState(1);
@@ -174,6 +174,8 @@ export default function FeedbackBubble({ setHighlightData, setChartData, restore
                 if (setLiveBuses) {
                   setLiveBuses(json.buffi_map.live ? { active: true, routeId: json.buffi_map.route_id || null } : null);
                 }
+                // heatmap selects a census ACS statistic to color ZIPs by.
+                if (setHeatStat) setHeatStat(json.buffi_map.heatmap || '');
                 if (openVisualizationPanel) openVisualizationPanel('map');
                 continue;
               }
@@ -207,7 +209,7 @@ export default function FeedbackBubble({ setHighlightData, setChartData, restore
 
       // Attach any visualization Buffi produced to the bot message so it
       // persists and restores when the conversation is reopened.
-      const hasMap = mapPayload && mapPayload.points && mapPayload.points.length;
+      const hasMap = mapPayload && ((mapPayload.points && mapPayload.points.length) || mapPayload.heatmap);
       const hasChart = chartPayload && chartPayload.chartData;
       if (hasMap || hasChart) {
         setChatHistory(prev => {
@@ -215,10 +217,11 @@ export default function FeedbackBubble({ setHighlightData, setChartData, restore
           const existing = next[botIdx] || { from: 'bot', text: fullAnswer || 'Here is the visualization you asked for.' };
           const patch = { ...existing };
           if (hasMap) {
-            patch.savedHighlightData = mapPayload.points;
+            patch.savedHighlightData = mapPayload.points && mapPayload.points.length ? mapPayload.points : (existing.savedHighlightData || null);
             patch.savedTitle = mapPayload.title || existing.savedTitle;
             patch.mapTag = true;
             if (mapPayload.live) patch.liveBuses = { active: true, routeId: mapPayload.route_id || null };
+            if (mapPayload.heatmap) patch.savedHeatStat = mapPayload.heatmap;
           }
           if (hasChart) {
             patch.savedChartData = chartPayload.chartData;
@@ -364,6 +367,8 @@ export default function FeedbackBubble({ setHighlightData, setChartData, restore
     if (msg.savedTitle && setMapTitle) setMapTitle(msg.savedTitle);
     // Re-enable the live bus feed if this message was a live-buses view.
     if (setLiveBuses) setLiveBuses(mode === 'map' && msg.liveBuses ? msg.liveBuses : null);
+    // Restore the census heat map statistic if this was a heat-map view.
+    if (setHeatStat) setHeatStat(mode === 'map' && msg.savedHeatStat ? msg.savedHeatStat : '');
     if (openVisualizationPanel) openVisualizationPanel();
   };
 

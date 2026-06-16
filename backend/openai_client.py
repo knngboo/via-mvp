@@ -17,6 +17,7 @@ from datetime import date, datetime, timedelta
 
 import requests
 
+import census
 import db
 import realtime
 
@@ -122,6 +123,7 @@ TOOLS AVAILABLE:
 - make_chart → Build a bar, pie, or radar chart from a SQL query. Use this whenever the answer is best shown as a graph (rankings, distributions, counts, comparisons, trends).
 - plot_on_map → Plot geographic points on the San Antonio map. Give it a SELECT that returns latitude and longitude columns (e.g. stop_lat/stop_lon from public.stops). Use this whenever the user asks to see, show, map, or locate things geographically.
 - show_live_buses → Plot VIA's live vehicle positions (real-time GTFS feed) on the map. Use when the user asks where buses are right now, live locations, or vehicle tracking.
+- show_heatmap → Display a US Census ACS demographic heat map of San Antonio ZIP codes (population, median income, poverty rate, etc.). Use when the user asks to see demographics, income, poverty, home values, or other census statistics geographically.
 - get_service_alerts → Read VIA's current real-time service alerts (detours, delays). Use when the user asks about alerts, disruptions, or service changes.
 - get_trip_updates → Read VIA's real-time trip updates (per-trip arrival/departure delays). Use when the user asks how late/on-time buses are, delays, or schedule adherence.
 
@@ -241,6 +243,24 @@ TOOLS = [
                     },
                 },
                 "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "show_heatmap",
+            "description": "Show a US Census ACS demographic heat map of San Antonio ZIP codes. Choose which statistic to color by.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "statistic": {
+                        "type": "string",
+                        "enum": census.STAT_IDS,
+                        "description": "Which census statistic to display: " + ", ".join(census.STAT_IDS) + ".",
+                    },
+                },
+                "required": ["statistic"],
             },
         },
     },
@@ -462,6 +482,17 @@ def run_tool(tenant, name, args, viz=None):
             "title": title,
             "note": "Live vehicle positions are now shown on the map (auto-refreshing)." if points else "No live vehicles found.",
         }
+
+    # ── show_heatmap ───────────────────────────────────────────────────────
+    if name == "show_heatmap":
+        stat = (args.get("statistic") or "").strip()
+        if stat not in census.STAT_IDS:
+            return {"error": "Unknown statistic '{}'. Choose one of: {}.".format(stat, ", ".join(census.STAT_IDS))}
+        label = census.stat_label(stat)
+        if viz is not None:
+            viz["map"] = {"points": [], "heatmap": stat, "title": "{} — San Antonio".format(label)}
+        return {"heatmap": stat, "title": label,
+                "note": "A census heat map of {} is now shown on the map.".format(label)}
 
     # ── get_service_alerts ─────────────────────────────────────────────────
     if name == "get_service_alerts":

@@ -28,6 +28,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
 import db
+from census import create_census_blueprint
 from import_gtfs import ensure_database_loaded
 from openai_client import DEFAULT_MODEL, MaxToolRoundsError, prepare_chat, stream_openai
 from realtime import create_realtime_blueprint
@@ -364,7 +365,7 @@ def chat_stream():
         # If a map/chart tool produced output, emit it first as custom SSE events
         # the frontend recognises (it ignores events without choices[].delta).
         map_payload = viz.get("map")
-        if map_payload and map_payload.get("points"):
+        if map_payload and (map_payload.get("points") or map_payload.get("heatmap")):
             yield ("data: " + json.dumps({"buffi_map": map_payload}) + "\n\n").encode("utf-8")
         chart_payload = viz.get("chart")
         if chart_payload and chart_payload.get("chartData"):
@@ -429,11 +430,13 @@ def plugins():
 sources_bp = create_sources_blueprint(require_admin)
 stats_bp = create_stats_blueprint()
 realtime_bp = create_realtime_blueprint()
+census_bp = create_census_blueprint()
 
 
 @sources_bp.before_request
 @stats_bp.before_request
 @realtime_bp.before_request
+@census_bp.before_request
 def _require_auth_for_blueprints():
     return _verify_request_token()
 
@@ -441,6 +444,7 @@ def _require_auth_for_blueprints():
 app.register_blueprint(sources_bp, url_prefix="/api/sources")
 app.register_blueprint(stats_bp, url_prefix="/api/stats")
 app.register_blueprint(realtime_bp, url_prefix="/api/realtime")
+app.register_blueprint(census_bp, url_prefix="/api/census")
 
 
 if __name__ == "__main__":
