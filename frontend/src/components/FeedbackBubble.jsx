@@ -88,7 +88,7 @@ export default function FeedbackBubble({ setHighlightData, setChartData, restore
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const sendMessage = async (text) => {
+  const sendMessage = async (text, { afterFollowUp = false } = {}) => {
     const trimmed = text.trim();
     if (!trimmed) return;
 
@@ -392,7 +392,21 @@ export default function FeedbackBubble({ setHighlightData, setChartData, restore
   return (
     <div className="chat-wrapper">
       <div className="chat-history" ref={historyRef}>
-        {chatHistory.map((msg, idx) => (
+        {chatHistory.map((msg, idx) => {
+          // Hide answered follow-up turns — the user's combined answer below
+          // captures the outcome, and we never show the raw `ask` JSON.
+          if (msg.from === 'bot' && parseAskBlock(msg.text)) return null;
+          // While an `ask` block is still streaming in, show a placeholder.
+          if (msg.from === 'bot' && /```ask/.test(msg.text)) {
+            return (
+              <div key={idx} className="msg-row bot">
+                <div className="bot-block">
+                  <div className="followup-pending">Preparing follow-up questions…</div>
+                </div>
+              </div>
+            );
+          }
+          return (
           <div key={idx} className={`msg-row ${msg.from}`}>
             {msg.from === 'user' ? (
               <div className="user-pill">{msg.text}</div>
@@ -565,7 +579,8 @@ export default function FeedbackBubble({ setHighlightData, setChartData, restore
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
 
         {loading && (
           <div className="msg-row bot">
