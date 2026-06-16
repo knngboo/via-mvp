@@ -24,26 +24,15 @@ A secure, containerized full-stack application built for **Better Futures Instit
 
 ### 2. Environment Configuration
 
-Create the file `backend/.env` before your first launch. This file is **gitignored** — never commit it.
+Copy the template file and you are ready to go:
 
-```env
-# OpenAI (required for AI chat features)
-OPENAI_API_KEY=sk-proj-your-openai-key-here
-
-# Admin registration secret — users need this to create accounts
-ADMIN_SECRET=MySuperSecretKey99!
-
-# JWT signing secret — change this to a long random string in production
-JWT_SECRET=your-secure-jwt-secret
-
-# PostgreSQL connection (matches docker-compose.yml)
-POSTGRES_HOST=postgres
-POSTGRES_USER=your-db-user
-POSTGRES_PASSWORD=your-db-password
-POSTGRES_DB=via_mvp
+```bash
+cp backend/.env.example backend/.env
 ```
 
-> See `backend/.env.example` for a blank template.
+The `.env.example` file contains working dev defaults for all required variables — no editing needed to run locally. The file is **gitignored** and must never be committed.
+
+> For production, replace `JWT_SECRET`, `ADMIN_SECRET`, and `OPENAI_API_KEY` with strong, unique values before deploying.
 
 ### 3. Launch the Platform
 
@@ -60,7 +49,7 @@ All three services start automatically. The backend waits for Postgres to be hea
 Navigate to `http://localhost:5173/register` and fill in:
 - **Username** — your email or chosen username
 - **Password** — minimum 8 characters
-- **Admin Secret** — the value of `ADMIN_SECRET` from your `.env`
+- **Admin Secret** — `dev_admin_secret_change_me` (the default from `.env.example`; change this in production)
 
 Then log in at `http://localhost:5173/login`.
 
@@ -176,7 +165,7 @@ The backend includes an integration smoke test suite (pytest):
 ```bash
 # Backend must be running first (docker compose up)
 # Run from toyr via-mvp/ root:
-ADMIN_SECRET=your-admin-secret python -m pytest backend/test/test_smoke.py -v
+ADMIN_SECRET=dev_admin_secret_change_me python -m pytest backend/tests/test_smoke.py -v
 ```
 
 Tests cover: registration guards, login + HttpOnly cookie, route protection, upload RBAC,
@@ -290,11 +279,11 @@ cat via_mvp_backup_YYYY-MM-DD.sql | docker exec -i via-mvp-postgres-1 psql -U yo
 
 ### 2. Conversation History Is Browser-Local Only
 
-**Current state:** Chat history is stored in `localStorage`, namespaced per user — different accounts cannot see each other's conversations. History persists across page refreshes within the same browser.
+**Current state:** Chat history is stored in `localStorage`, namespaced per user. The backend endpoints `GET/POST /api/chat/messages` exist and are wired to the `chat_messages` DB table.
 
-**Limitation:** Clearing browser data or switching devices loses all history.
+**Limitation:** Frontend fire-and-forget save to the backend is partially implemented. Clearing browser data or switching devices may still lose history depending on the branch.
 
-**Future fix:** Wire the existing `chat_messages` DB table to a `POST /api/chat/history` endpoint.
+**Next step:** Verify and complete the frontend save call in `FeedbackBubble.jsx` and the restore-on-mount in `ChatPage.jsx`.
 
 ---
 
@@ -324,4 +313,4 @@ A `docker compose down -v` permanently deletes all uploaded data. Manual `pg_dum
 
 ---
 
-*Last reviewed: 2026-06-15. Maintained by Better Futures Institute engineering team.*
+*Last reviewed: 2026-06-16. Maintained by Better Futures Institute engineering team.*

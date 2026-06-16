@@ -1,5 +1,5 @@
 BFI Platform — Product Strategy Notes
-Living document. Last updated: 2026-06-15
+Living document. Last updated: 2026-06-16
 
 ────────────────────────────────────────────
 1. What We Know About the Platform Direction
@@ -60,11 +60,12 @@ Buffi = GPT-4o-mini (or GPT-4o, selectable) + VIA-specific system prompt + text-
 
 It is not trained. It is not a custom model. It is an OpenAI API call with schema context.
 
-The OpenAI Key Model (Current)
-- BFI hosts the key in backend/.env (OPENAI_API_KEY)
-- VIA employees never need a key — they log in and use Buffi
-- Risk: All usage bills to BFI. VIA's usage = BFI's cost.
-- Mitigation options: Per-tenant key (VIA provides their own stored as a secret), or usage-based billing by BFI
+The OpenAI Key Model (Current — Updated 2026-06-16)
+- Each user enters their own OpenAI API key in the Settings panel
+- Key is sent per-request as an X-OpenAI-Key header — never stored server-side
+- Server-side OPENAI_API_KEY in .env acts as a fallback if no user key is provided
+- Risk: keys travel over HTTP in dev. HTTPS is required before external deployment.
+- Advantage: BFI does not pay for VIA staff AI usage. Each user controls their own spend.
 
 Text-to-SQL (Implemented)
 Instead of hardcoded tools per question type:
@@ -160,7 +161,8 @@ Platform
 ✅ Submission context tooltips + Data Domain dropdown
 ✅ Data Hub admin-only sidebar link
 
-☐ Server-side chat history (chat_messages table exists, not wired to any endpoint)
+✅ Server-side chat history — GET/POST /api/chat/messages wired to chat_messages table
+   Frontend fire-and-forget save is partially implemented (verify FeedbackBubble + ChatPage restore)
 ☐ Persistent file storage that survives docker volume wipes (S3 / mounted volume)
 ☐ JWT revocation on logout (blocklist table — currently TTL-only)
 ☐ Redis-backed rate limiting (currently in-memory, resets on restart)
@@ -182,7 +184,8 @@ Platform Admin
 
 Infrastructure
 ☐ TLS/HTTPS in production (Certbot or cloud load balancer — MUST before public deployment)
-☐ CI/CD pipeline (GitHub Actions exists but needs test gate enforcement)
+☐ CI/CD pipeline — ci.yml exists but runs Node.js/npm on a Python backend. Needs update to pip + pytest.
+☐ AWS EC2 deployment — architecture guide drafted, not yet deployed
 ☐ Horizontal scaling readiness (requires Redis for sessions + rate limiting)
 ☐ DB replica / read replica for scale
 
