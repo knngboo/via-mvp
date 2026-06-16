@@ -19,12 +19,23 @@ services:
       - "127.0.0.1:5001:5001"
     volumes:
       - ./backend:/app
+    # backend/.env is OPTIONAL: the defaults below let a freshly-cloned repo run
+    # out-of-the-box. If the file exists, it's still loaded (e.g. for OPENAI_API_KEY);
+    # the keys defined under `environment` below take precedence over it.
     env_file:
-      - ./backend/.env
+      - path: ./backend/.env
+        required: false
     environment:
       - POSTGRES_USER=admin
       - POSTGRES_PASSWORD=admin
       - POSTGRES_DB=via_mvp
+      # Auth secrets — dev defaults so register/login work on a fresh clone.
+      # Override by exporting JWT_SECRET / ADMIN_SECRET before `docker compose up`.
+      - JWT_SECRET=${JWT_SECRET:-dev_jwt_secret_change_me_0123456789abcdef}
+      - ADMIN_SECRET=${ADMIN_SECRET:-dev_admin_secret_change_me}
+      # US Census ACS key baked in so the map heat-map works for anyone who clones
+      # the repo. Free key: https://api.census.gov/data/key_signup.html
+      - CENSUS_API_KEY=${CENSUS_API_KEY:-f805edcf2467e1a44d01133ce2018dae58f3b5cb}
     depends_on:
       postgres:
         condition: service_healthy

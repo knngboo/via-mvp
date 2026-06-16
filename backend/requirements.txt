@@ -8,7 +8,7 @@ PyJWT==2.9.0
 requests==2.32.3
 python-dotenv==1.0.1
 gunicorn==23.0.0
-
+pytest==8.2.2
 # GTFS-realtime protobuf parsing (vehicle positions + alerts .pb feeds).
 # gtfs-realtime-bindings ships the compiled google.transit.gtfs_realtime_pb2
 # module generated from gtfs-realtime.proto.

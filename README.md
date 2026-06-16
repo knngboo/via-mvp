@@ -70,14 +70,14 @@ Then log in at `http://localhost:5173/login`.
 
 ## Application Routes
 
-| URL | Page | Description |
-|-----|------|-------------|
-| `/login` | Login | Authenticate with username + password |
-| `/register` | Register | Create a new account (requires admin secret) |
-| `/chat` | AI Chat | Natural language interface to the transit database |
-| `/dashboard` | VIA Dashboard | Interactive San Antonio transit map + live DB stats |
-| `/sources` | Data Hub | Upload CSVs, browse ingested data, manage sources *(admin only)* |
-
+| URL | Page | Access | Description |
+|-----|------|--------|-------------|
+| `/login` | Login | Public | Authenticate with username + password |
+| `/register` | Register | Public | Create a new account (requires admin secret) |
+| `/dashboard` | VIA Dashboard | All users | Interactive San Antonio transit map + live DB stats |
+| `/chat` | AI Chat | Analyzer, Editor, Admin | Natural language interface to the transit database |
+| `/sources` | Data Hub | Editor, Admin | Upload CSVs, browse ingested data, manage sources |
+| `/admin` | Admin Panel | Admin only | Manage users and assign roles |
 ---
 
 ## Key Features
@@ -96,8 +96,10 @@ Then log in at `http://localhost:5173/login`.
 - Live stats in the header: Datasets, Routes, Stops, Trips
 - Gracefully handles an empty database — no errors if no data has been uploaded yet
 
-### 📁 Data Hub (`/sources`) — Admin only
+### 📁 Data Hub (`/sources`) —  Editor + Admin
 - Drag-and-drop CSV upload with file type and size validation (50 MB max)
+- **Editor** uploads are marked `private` (visible only to uploader + admins)
+- **Admin** uploads are marked `shared` (visible to all authenticated users)
 - **Submission Context Modal** after upload:
   - **Data Domain** — dropdown with VIA-specific categories (Ridership, Routes, Operations, etc.)
   - **Project Name**, **Description**, **Coverage Dates**
@@ -105,19 +107,34 @@ Then log in at `http://localhost:5173/login`.
 - Live file table synced from PostgreSQL — persists across sessions and restarts
 - Model switcher — toggle between GPT-4o and GPT-4o-mini in the chat settings panel
 
-### 🔐 Security
+### 🔐 Role-Based Access Control
+
+Four roles enforced on both frontend (route guards) and backend (decorators):
+
+| Role | `/chat` | `/sources` | `/admin` | Can Delete Others' Sources |
+|------|---------|-----------|----------|---------------------------|
+| **admin** | ✅ | ✅ | ✅ | ✅ |
+| **editor** | ✅ | ✅ | ❌ | ❌ (own only) |
+| **analyzer** | ✅ | ❌ | ❌ | ❌ |
+| **viewer** | ❌ | ❌ | ❌ | ❌ |
+
+- All new registrations default to `admin` role
+- An admin demotes users from the `/admin` panel — no SQL required
+- Role changes take effect on the user's **next login**
+
+### 🔒 Security
 - **HttpOnly session cookie** — JWT never accessible to JavaScript. Immune to XSS token theft.
 - All sensitive backend ports bound exclusively to `127.0.0.1`
-- Cookie-based auth enforced on every authenticated API endpoint (`authenticate_token` decorator / blueprint guard)
-- Admin secret required for new account registration (timing-safe comparison via `hmac.compare_digest`)
+- Cookie-based auth enforced on every authenticated API endpoint (`authenticateToken` middleware)
+- Admin secret required for new account registration (timing-safe comparison via `crypto.timingSafeEqual`)
 - Environment variables for all secrets — never hardcoded
-- **Explicit Content Security Policy** — allowlists only known origins
-- Rate limiting on all auth and chat endpoints (Flask-Limiter)
+- **Explicit Content Security Policy** via Helmet — allowlists only known origins
+- Rate limiting on all auth and chat endpoints
 - **Tenant schema derived from JWT** — all DB queries scoped to the authenticated user's tenant
 - **CSV column names sanitized** before SQL interpolation — strips all non-safe characters
 - Message length capped (4,000 chars) and chat history limited to last 20 exchanges per request
 - Vite proxy used for all frontend API calls (no CORS exposure, no backend port visible to browser)
-- **File uploads** validated for type (`.csv`) and size (50 MB max)
+- **Multer 2.x** — up-to-date file upload handler with resolved CVE-2022-24434
 
 ---
 
@@ -140,7 +157,7 @@ The AI automatically discovers all uploaded tables and their columns at query ti
 ## Development Notes
 
 - **Hot reload** is active for the frontend — Vite HMR means most frontend changes apply without restarting Docker
-- **Backend** runs under gunicorn and does **not** auto-reload. After editing backend code, run `docker compose restart backend` (or add `--reload` to the Dockerfile `CMD` for local iteration). See [`backend/README.md`](backend/README.md).
+- **Backend restarts** are handled automatically when you save any backend `.py` file (Flask dev server with reloader). See [`backend/README.md`](backend/README.md).
 - To fully reset the database and start fresh:
   ```bash
   docker compose down -v
@@ -148,20 +165,23 @@ The AI automatically discovers all uploaded tables and their columns at query ti
   ```
   > ⚠️ `-v` wipes all data including user accounts and uploaded CSVs. You'll need to register again.
 - The `bfi` PostgreSQL schema is the primary tenant schema. Each uploaded CSV becomes its own dynamically-generated table within it.
-- Backend logs use Python's `logging` module (level via `LOG_LEVEL`, default `INFO`).
+- Backend logs are structured Python logging. Set `LOG_LEVEL=DEBUG` in `backend/.env` for verbose output.
 
 ---
 
 ## Running Tests
 
-The backend includes an integration smoke test suite using Python's `unittest`:
+The backend includes an integration smoke test suite (pytest):
 
 ```bash
 # Backend must be running first (docker compose up)
-ADMIN_SECRET=your-admin-secret python -m unittest backend/tests/test_smoke.py
+# Run from toyr via-mvp/ root:
+ADMIN_SECRET=your-admin-secret python -m pytest backend/test/test_smoke.py -v
 ```
 
-Tests cover: registration guards, login + HttpOnly cookie, route protection, upload RBAC, feedback endpoint, plugin registry, and logout.
+Tests cover: registration guards, login + HttpOnly cookie, route protection, upload RBAC,
+feedback endpoint, logout, and the full 4-role RBAC system (admin endpoints, visibility filtering,
+chat access, delete ownership).
 
 ---
 
@@ -178,30 +198,35 @@ via-mvp/
 │   ├── openai_client.py        # OpenAI SSE streaming + text-to-SQL agent
 │   ├── stats.py                # DB stats API (empty-state safe)
 │   ├── import_gtfs.py          # Optional GTFS bulk loader
-│   ├── db.py                   # psycopg2 connection pool + query helpers
+│   ├── db.py                   # PostgreSQL connection pool + query helpers
 │   ├── requirements.txt        # Python dependencies
 │   ├── Depricated/             # Archived original Node/Express backend
 │   ├── tests/
 │   │   └── test_smoke.py       # Integration smoke test suite
 │   ├── db/
-│   │   └── init.sql            # Database schema (users, feedback, bfi schema)
+│   │   └── init.sql            # Database schema (users, feedback, bfi schema, sources_meta)
 │   ├── .env                    # 🔒 Secret config (gitignored)
 │   └── .env.example            # Template for new developers
 ├── frontend/
 │   ├── src/
-│   │   ├── App.jsx                        # Route definitions + ProtectedRoute / AdminRoute
+│   │   ├── App.jsx                        # Route definitions + all 5 role guards
 │   │   ├── pages/
 │   │   │   ├── Login.jsx
 │   │   │   ├── Register.jsx
 │   │   │   ├── ChatPage.jsx               # AI chat interface + per-user history
+│   │   │   ├── AdminPage.jsx              # User management UI (admin only)
 │   │   │   └── hub/
 │   │   │       └── UploadPage.jsx         # Data Hub — upload + submission context
 │   │   ├── components/
+│   │   │   ├── AdminPanel.jsx             # User table with role dropdowns
 │   │   │   ├── AppSidebar.jsx             # Navigation sidebar + per-user chat history
 │   │   │   ├── FeedbackBubble.jsx         # AI chat + SSE streaming
 │   │   │   ├── MapView.jsx                # Raw Leaflet map component
+│   │   │   ├── RoleGuard.jsx              # Conditional render by role
 │   │   │   ├── SettingsModal.jsx          # Model selection + app settings
 │   │   │   └── PluginDashboardPage.jsx    # Dashboard shell
+│   │   ├── hooks/
+│   │   │   └── useRole.js                 # Role-checking hooks (useIsAdmin, useCanEdit, etc.)
 │   │   ├── Plugins/
 │   │   │   └── Via/                       # VIA-specific plugin (map + stats)
 │   │   ├── context/
@@ -212,6 +237,7 @@ via-mvp/
 │   └── vite.config.js                     # Vite + proxy config
 ├── docker-compose.yml                     # Development compose file
 ├── docker-compose.prod.yml                # Production compose file
+├── TESTING_GUIDE.md                       # Step-by-step testing walkthrough
 └── README.md
 ```
 
@@ -231,17 +257,10 @@ The application will be available on port `80`.
 
 ### 2. Role-Based Access Control (RBAC)
 
-Users registered with the Admin Secret receive the `admin` role automatically. Admins see the Data Hub tab and can upload data.
+Users registered with the Admin Secret receive the `admin` role automatically.
+To change a user's role, go to **http://localhost:5173/admin** (admin panel UI).
 
-To manually change a user's role:
-```bash
-# Access the running postgres container
-docker exec -it via-mvp-postgres-1 psql -U your-db-user -d via_mvp
-
-# Elevate to admin
-UPDATE users SET user_role = 'admin' WHERE username = 'target_user';
-```
-*(The user must log out and log back in to receive the updated role.)*
+The admin panel lets you promote or demote any other user with a dropdown. Changes take effect on the user's next login.
 
 ### 3. Database Backups
 

@@ -34,7 +34,7 @@ def _sanitize_column_name(name, idx):
 
 
 def init_sources_meta():
-    """Ensure the metadata table exists with all context columns (idempotent)."""
+    """Ensure the metadata table exists with all context/RBAC columns (idempotent)."""
     try:
         db.query(
             """
@@ -53,26 +53,36 @@ def init_sources_meta():
         db.query(
             """
             ALTER TABLE bfi.sources_meta
-                ADD COLUMN IF NOT EXISTS project_name   VARCHAR(255),
-                ADD COLUMN IF NOT EXISTS description    TEXT,
-                ADD COLUMN IF NOT EXISTS data_domain    VARCHAR(100),
-                ADD COLUMN IF NOT EXISTS coverage_start DATE,
-                ADD COLUMN IF NOT EXISTS coverage_end   DATE,
-                ADD COLUMN IF NOT EXISTS ongoing        BOOLEAN DEFAULT FALSE,
+                ADD COLUMN IF NOT EXISTS user_id         INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                ADD COLUMN IF NOT EXISTS visibility      VARCHAR(20) DEFAULT 'private',
+                ADD COLUMN IF NOT EXISTS project_name    VARCHAR(255),
+                ADD COLUMN IF NOT EXISTS description     TEXT,
+                ADD COLUMN IF NOT EXISTS data_domain     VARCHAR(100),
+                ADD COLUMN IF NOT EXISTS coverage_start  DATE,
+                ADD COLUMN IF NOT EXISTS coverage_end    DATE,
+                ADD COLUMN IF NOT EXISTS ongoing         BOOLEAN DEFAULT FALSE,
                 ADD COLUMN IF NOT EXISTS agency_response VARCHAR(50);
+            """
+        )
+        db.query(
+            """
+            CREATE INDEX IF NOT EXISTS idx_sources_meta_user       ON bfi.sources_meta(user_id);
+            CREATE INDEX IF NOT EXISTS idx_sources_meta_visibility ON bfi.sources_meta(visibility);
             """
         )
     except Exception as e:
         print("Failed to initialise sources_meta table:", e)
 
 
-def create_sources_blueprint(require_admin):
+def create_sources_blueprint(require_admin, require_editor=None, require_analyzer=None, require_viewer=None):
     bp = Blueprint("sources", __name__)
+    # Fall back to require_admin if narrower role guards are not provided.
+    require_editor = require_editor or require_admin
 
-    # Upload a CSV — admin only
+    # Upload a CSV — editors and admins
     @bp.route("", methods=["POST"])
     @bp.route("/", methods=["POST"])
-    @require_admin
+    @require_editor
     def upload():
         file = request.files.get("file")
         if not file:
@@ -110,6 +120,8 @@ def create_sources_blueprint(require_admin):
         columns = [_sanitize_column_name(c, i) for i, c in enumerate(raw_columns)]
 
         size = len(raw)
+        # Visibility: admin uploads are shared with all users; editor uploads are private.
+        visibility = "shared" if (g.user or {}).get("role") == "admin" else "private"
 
         try:
             with db.transaction() as cur:
@@ -139,18 +151,22 @@ def create_sources_blueprint(require_admin):
                     ]
                     execute_values(cur, insert_sql, values)
 
-                # 4. Save metadata in the same transaction
+                # 4. Save metadata in the same transaction - track owner and visibility
                 cur.execute(
                     """
-                    INSERT INTO bfi.sources_meta (name, table_name, size, num_rows, columns)
-                    VALUES (%s, %s, %s, %s, %s)
+                    INSERT INTO bfi.sources_meta (name, table_name, size, num_rows, columns, user_id, visibility)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (table_name) DO UPDATE
-                        SET name = EXCLUDED.name, size = EXCLUDED.size,
-                            num_rows = EXCLUDED.num_rows, columns = EXCLUDED.columns,
+                        SET name        = EXCLUDED.name,
+                            size        = EXCLUDED.size,
+                            num_rows    = EXCLUDED.num_rows,
+                            columns     = EXCLUDED.columns,
+                            user_id     = EXCLUDED.user_id,
+                            visibility  = EXCLUDED.visibility,
                             uploaded_at = CURRENT_TIMESTAMP
                     RETURNING id;
                     """,
-                    (file.filename, table_name, size, len(rows), json.dumps(columns)),
+                    (file.filename, table_name, size, len(rows), json.dumps(columns), (g.user or {}).get("id"), visibility),
                 )
                 new_id = cur.fetchone()["id"]
 
@@ -175,16 +191,24 @@ def create_sources_blueprint(require_admin):
     def list_sources():
         tenant = _tenant()
         try:
-            rows = db.query(
-                "SELECT * FROM {}.sources_meta ORDER BY uploaded_at DESC".format(tenant)
-            )
+            user_role = (g.user or {}).get("role")
+            user_id = (g.user or {}).get("id")
+            if user_role == "admin":
+                rows = db.query(
+                    "SELECT * FROM {}.sources_meta ORDER BY uploaded_at DESC".format(tenant)
+                )
+            else:
+                rows = db.query(
+                    "SELECT * FROM {}.sources_meta WHERE user_id = %s ORDER BY uploaded_at DESC".format(tenant),
+                    (user_id,),
+                )
             return jsonify(rows)
         except Exception as error:
             return jsonify({"message": str(error)}), 500
 
     # Delete a source — admin only
     @bp.route("/<id>", methods=["DELETE"])
-    @require_admin
+    @require_editor
     def delete_source(id):
         tenant = _tenant()
         try:
@@ -193,11 +217,18 @@ def create_sources_blueprint(require_admin):
             return jsonify({"message": "Invalid source id."}), 400
         try:
             meta = db.query(
-                "SELECT table_name FROM {}.sources_meta WHERE id = %s".format(tenant),
+                "SELECT table_name, user_id FROM {}.sources_meta WHERE id = %s".format(tenant),
                 (source_id,),
             )
             if not meta:
                 return jsonify({"message": "Source not found."}), 404
+
+            # Ownership check: editors can only delete their own sources
+            user_role = (g.user or {}).get("role")
+            user_id = (g.user or {}).get("id")
+            if user_role != "admin" and meta[0]["user_id"] != user_id:
+                return jsonify({"error": "You can only delete your own sources."}), 403
+            
             table_name = meta[0]["table_name"]
 
             with db.transaction() as cur:
@@ -212,13 +243,26 @@ def create_sources_blueprint(require_admin):
 
     # Update submission context metadata — admin only
     @bp.route("/<id>/context", methods=["PATCH"])
-    @require_admin
+    @require_editor
     def update_context(id):
         tenant = _tenant()
         try:
             source_id = int(id)
         except (TypeError, ValueError):
             return jsonify({"message": "Invalid source id."}), 400
+        
+        # Editors can only update their own uploads; admins can update any.
+        user_role = (g.user or {}).get("role")
+        user_id = (g.user or {}).get("id")
+        if user_role != "admin":
+            owner_check = db.query(
+                "SELECT user_id FROM {}.sources_meta WHERE id = %s".format(tenant),
+                (source_id,),
+            )
+            if not owner_check:
+                return jsonify({"message": "Source not found."}), 404
+            if owner_check[0]["user_id"] != user_id:
+                return jsonify({"message": "You can only update your own sources."}), 403
 
         body = request.get_json(silent=True) or {}
         try:

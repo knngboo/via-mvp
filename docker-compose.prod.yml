@@ -28,6 +28,9 @@ services:
       # Override host to use Docker's internal DNS name
       POSTGRES_HOST: postgres
       PORT: 5001
+      # US Census ACS key baked in so the map heat-map works out-of-the-box.
+      # Override by setting CENSUS_API_KEY in the environment before deploying.
+      CENSUS_API_KEY: ${CENSUS_API_KEY:-f805edcf2467e1a44d01133ce2018dae58f3b5cb}
     # Port NOT exposed to the host in production.
     # Nginx proxies /api to the backend via Docker's internal network.
     depends_on:

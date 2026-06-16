@@ -164,6 +164,21 @@ function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state?.switchConvId]);
 
+  // On first mount: if localStorage has no history, try to restore from server.
+  // This recovers history across devices or after a browser clear.
+  // localStorage stays the fast cache — server is the fallback only.
+  useEffect(() => {
+    if (chatHistory.length > 0) return; // already have local history, skip
+    fetch('/api/chat/messages?limit=50', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : [])
+      .then(msgs => {
+        if (!Array.isArray(msgs) || msgs.length === 0) return;
+        setChatHistory(msgs.map(m => ({ from: m.sender_role, text: m.content })));
+      })
+      .catch(() => {}); // silent: never show restore errors to user
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  
   // Handle custom events dispatched from AppSidebar
   useEffect(() => {
     const handler = (e) => {

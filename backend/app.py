@@ -181,6 +181,36 @@ def require_admin(fn):
     return wrapper
 
 
+def require_editor(fn):
+    """Admin or editor — can upload data and manage their own sources."""
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        if (g.get("user") or {}).get("role") not in ["admin", "editor"]:
+            return jsonify({"error": "Editor role required."}), 403
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+def require_analyzer(fn):
+    """Admin, editor, or analyzer — can run queries and view data."""
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        if (g.get("user") or {}).get("role") not in ["admin", "editor", "analyzer"]:
+            return jsonify({"error": "Analyzer or Editor role required."}), 403
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+def require_viewer(fn):
+    """All authenticated users — broadest role gate."""
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        if (g.get("user") or {}).get("role") not in ["admin", "editor", "analyzer", "viewer"]:
+            return jsonify({"error": "Access denied."}), 403
+        return fn(*args, **kwargs)
+    return wrapper
+
+
 def _set_session_cookie(resp, token):
     resp.set_cookie(
         "via_session",
@@ -324,6 +354,7 @@ ALLOWED_MODELS = ["gpt-4o", "gpt-4o-mini"]
 
 @app.route("/api/chat/stream", methods=["POST"])
 @authenticate_token
+@require_analyzer
 @chat_limit
 def chat_stream():
     body = request.get_json(silent=True) or {}
@@ -386,6 +417,81 @@ def chat_stream():
         headers=headers,
     )
 
+# ── Chat history persistence ─────────────────────────────────────────────────
+# The chat_messages table was created in init.sql but not yet used.
+# These two endpoints wire it up as a lightweight persistence layer.
+# The frontend keeps localStorage as its fast cache; server is the fallback
+# that survives browser clears and works across devices.
+
+@app.route("/api/chat/messages", methods=["GET"])
+@authenticate_token
+def chat_messages_get():
+    """Return the last N messages for the logged-in user, oldest-first."""
+    user_id = g.user["id"]
+    try:
+        limit = min(int(request.args.get("limit", 50)), 200)
+    except (ValueError, TypeError):
+        limit = 50
+
+    rows = db.query(
+        """
+        SELECT id, sender_role, content, created_at
+        FROM chat_messages
+        WHERE user_id = %s
+        ORDER BY created_at ASC
+        LIMIT %s
+        """,
+        (user_id, limit),
+    )
+    return jsonify([{
+        "id": r["id"],
+        "sender_role": r["sender_role"],
+        "content": r["content"],
+        "created_at": r["created_at"].isoformat() if r.get("created_at") else None,
+    } for r in rows])
+
+
+@app.route("/api/chat/messages", methods=["POST"])
+@authenticate_token
+@require_analyzer
+def chat_messages_post():
+    """
+    Persist a chat exchange (user message + bot response) server-side.
+    Accepts: {"messages": [{"sender_role": "user"|"bot", "content": "..."}]}
+    Called fire-and-forget from the frontend — never blocks the UI.
+    """
+    user_id = g.user["id"]
+    body = request.get_json(silent=True) or {}
+    messages = body.get("messages", [])
+
+    if not isinstance(messages, list) or len(messages) == 0:
+        return jsonify({"error": "messages array required"}), 400
+
+    inserted = []
+    try:
+        with db.transaction() as cur:
+            for msg in messages[:20]:   # cap: max 20 messages per call
+                sender_role = (msg.get("sender_role") or "").strip()
+                content = (msg.get("content") or "").strip()
+                if sender_role not in ("user", "bot") or not content:
+                    continue
+                cur.execute(
+                    """
+                    INSERT INTO chat_messages (user_id, sender_role, content)
+                    VALUES (%s, %s, %s)
+                    RETURNING id
+                    """,
+                    (user_id, sender_role, content[:10000]),
+                )
+                row = cur.fetchone()
+                if row:
+                    inserted.append(row["id"])
+    except Exception as err:
+        logger.error("chat_messages_post failed: %s", err)
+        return jsonify({"error": "Failed to save messages"}), 500
+
+    return jsonify({"saved": len(inserted), "ids": inserted}), 201
+
 
 # ── Feedback ────────────────────────────────────────────────────────────────
 @app.route("/api/feedback", methods=["POST"])
@@ -425,9 +531,59 @@ def plugins():
         logger.error("plugins fetch failed: %s", error)
         return jsonify({"error": "Failed to fetch plugins."}), 500
 
+# ── Admin: user management ───────────────────────────────────────────────────
+@app.route("/api/admin/users", methods=["GET"])
+@authenticate_token
+@require_admin
+def list_users():
+    try:
+        rows = db.query(
+            "SELECT id, username, user_role, created_at FROM users ORDER BY created_at DESC"
+        )
+        return jsonify([
+            {
+                "id": r["id"],
+                "username": r["username"],
+                "user_role": r["user_role"],
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            }
+            for r in rows
+        ])
+    except Exception as error:
+        logger.error("users fetch failed: %s", error)
+        return jsonify({"error": "Failed to fetch users."}), 500
+
+
+@app.route("/api/admin/users/<int:user_id>/role", methods=["PATCH"])
+@authenticate_token
+@require_admin
+def update_user_role(user_id):
+    VALID_ROLES = ["admin", "editor", "analyzer", "viewer"]
+    body = request.get_json(silent=True) or {}
+    role = body.get("role")
+
+    if not role or role not in VALID_ROLES:
+        return jsonify({"error": "Invalid role. Must be one of: {}".format(", ".join(VALID_ROLES))}), 400
+
+    # Prevent self-demotion
+    if user_id == g.user["id"] and role != "admin":
+        return jsonify({"error": "Cannot demote yourself from admin role."}), 403
+
+    try:
+        rows = db.query(
+            "UPDATE users SET user_role = %s WHERE id = %s RETURNING id, username, user_role",
+            (role, user_id),
+        )
+        if not rows:
+            return jsonify({"error": "User not found."}), 404
+        logger.info("User %s role updated to %s by admin %s", user_id, role, g.user["id"])
+        return jsonify(dict(rows[0]))
+    except Exception as error:
+        logger.error("role update failed: %s", error)
+        return jsonify({"error": "Failed to update role."}), 500
 
 # ── Blueprints (authenticated) ──────────────────────────────────────────────
-sources_bp = create_sources_blueprint(require_admin)
+sources_bp = create_sources_blueprint(require_admin, require_editor, require_analyzer, require_viewer)
 stats_bp = create_stats_blueprint()
 realtime_bp = create_realtime_blueprint()
 census_bp = create_census_blueprint()
