@@ -21,6 +21,22 @@ const SUGGESTED_QUESTIONS = [
   { text: "What columns are in my latest uploaded dataset?", icon: suiteDataIcon },
 ];
 
+// Tile-editor suggestions shown in the floating bubble for map tiles
+const MAP_TILE_QUESTIONS = [
+  { text: "Filter stops within 2 miles of downtown", icon: suiteMapsIcon },
+  { text: "Show all live bus locations", icon: suiteMapsIcon },
+  { text: "Overlay median income heatmap by ZIP", icon: suiteChartsIcon },
+  { text: "Map all stops for route 100", icon: suiteMapsIcon },
+];
+
+// Tile-editor suggestions shown in the floating bubble for chart tiles
+const CHART_TILE_QUESTIONS = [
+  { text: "Change this to a pie chart", icon: suiteChartsIcon },
+  { text: "Show only the top 10 results", icon: suiteDataIcon },
+  { text: "Sort by highest value first", icon: suiteDataIcon },
+  { text: "Chart total ridership by route", icon: suiteChartsIcon },
+];
+
 
 function deriveMaptitle(userText) {
   const t = userText.toLowerCase();
@@ -39,7 +55,16 @@ function deriveMaptitle(userText) {
 
 
 
-export default function FeedbackBubble({ setHighlightData, setChartData, restoreChartData, setMapTitle, chartType, setChartType, openVisualizationPanel, setIsLoading, setLastQuery, setLastBotResponse, initialQuery, chatHistory, setChatHistory, setLiveBuses, setHeatStat }) {
+export default function FeedbackBubble({
+  setHighlightData, setChartData, restoreChartData, setMapTitle,
+  chartType, setChartType, openVisualizationPanel, setIsLoading,
+  setLastQuery, setLastBotResponse, initialQuery,
+  chatHistory, setChatHistory, setLiveBuses, setHeatStat,
+  // Tile editor mode — set when mounted inside the floating bubble
+  tileMode = false,   // true when acting as a tile editor (not full chat)
+  tileView = '',      // 'map' | 'chart' — which view is active
+  tileContext = '',   // description of current tile state, injected into API call
+}) {
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingPhase, setLoadingPhase] = useState(1);
@@ -97,6 +122,12 @@ export default function FeedbackBubble({ setHighlightData, setChartData, restore
     setChatHistory(prev => [...prev, userMsg]);
     if (setLastQuery) setLastQuery(trimmed);
     
+    // In tile-editor mode, prefix the API message with the current tile context.
+    // The chat history only stores the clean user text (no prefix shown).
+    const messageForApi = (tileMode && tileContext)
+      ? `[VIEW CONTEXT: ${tileContext}]\n\nUser instruction: ${trimmed}`
+      : trimmed;
+    
     // Automatically open the map panel ONLY if the user explicitly asks for a map
     if (setMapTitle) setMapTitle(title);
     if (openVisualizationPanel && trimmed.toLowerCase().includes('map')) {
@@ -130,7 +161,7 @@ export default function FeedbackBubble({ setHighlightData, setChartData, restore
           'Content-Type': 'application/json',
           ...(apiKey ? { 'X-OpenAI-Key': apiKey } : {}),
         },
-        body: JSON.stringify({ message: trimmed, history: chatHistory, model: getStoredModel() }),
+        body: JSON.stringify({ message: messageForApi, history: chatHistory, model: getStoredModel() }),
         signal: controller.signal
       });
       
@@ -324,13 +355,34 @@ export default function FeedbackBubble({ setHighlightData, setChartData, restore
 
   // ── Landing State ──
   if (chatHistory.length === 0 && !loading) {
+    // In tile-editor mode, pick view-specific suggestions
+    const activeSuggestions = tileMode
+      ? (tileView === 'map' ? MAP_TILE_QUESTIONS : CHART_TILE_QUESTIONS)
+      : SUGGESTED_QUESTIONS;
+
+    const landingPlaceholder = tileMode
+      ? (tileView === 'map' ? 'Modify this map... e.g. "filter stops near ZIP 78205"' : 'Modify this chart... e.g. "change to pie chart"')
+      : 'Write message here...';
+
     return (
       <div className="chat-wrapper">
         <div className="landing-body">
-          <div className="landing-greeting">Hi Buffi,</div>
-          <div className="landing-heading">What should we dive into?</div>
+          {tileMode ? (
+            <>
+              <div className="landing-greeting tile-editor-badge">
+                <span className="tile-editor-icon">{tileView === 'map' ? '🗺️' : '📊'}</span>
+                {tileView === 'map' ? 'Map Editor' : 'Chart Editor'}
+              </div>
+              <div className="landing-heading">Tell Buffi how to modify this tile</div>
+            </>
+          ) : (
+            <>
+              <div className="landing-greeting">Hi Buffi,</div>
+              <div className="landing-heading">What should we dive into?</div>
+            </>
+          )}
           <div className="landing-questions">
-            {SUGGESTED_QUESTIONS.map((q, i) => (
+            {activeSuggestions.map((q, i) => (
               <button
                 key={i}
                 className="landing-question-btn"
@@ -351,6 +403,7 @@ export default function FeedbackBubble({ setHighlightData, setChartData, restore
           onStop={handleStop}
           loading={loading}
           textareaRef={textareaRef}
+          placeholder={landingPlaceholder}
         />
       </div>
     );
@@ -617,7 +670,7 @@ export default function FeedbackBubble({ setHighlightData, setChartData, restore
   );
 }
 
-function ChatInput({ message, setMessage, onSubmit, onStop, loading, textareaRef }) {
+function ChatInput({ message, setMessage, onSubmit, onStop, loading, textareaRef, placeholder = 'Write message here...' }) {
   return (
     <div className="chat-input-area">
       <div className="chat-input-box">
@@ -625,7 +678,7 @@ function ChatInput({ message, setMessage, onSubmit, onStop, loading, textareaRef
           <textarea
             ref={textareaRef}
             className="chat-textarea"
-            placeholder="Write message here..."
+            placeholder={placeholder}
             aria-label="Chat message input"
             value={message}
             rows={1}

@@ -59,13 +59,9 @@ def build_schema_context(tenant):
             (schemas_to_show,),
         )
 
-        if not tables:
-            return ("DATABASE: No data tables found. The agency has not uploaded any data yet. "
-                    "Tell the user to upload a file via the Data Hub before asking data questions.")
-
         # Only include tables that actually have rows.
         non_empty = []
-        for t in tables:
+        for t in tables or []:
             try:
                 count = db.query(
                     'SELECT COUNT(*) AS n FROM "{}"."{}"'.format(
@@ -75,12 +71,7 @@ def build_schema_context(tenant):
                 if int(count[0]["n"]) > 0:
                     non_empty.append(t)
             except Exception:
-                # Table may not be queryable — skip it
                 pass
-
-        if not non_empty:
-            return ("DATABASE: All tables are empty. No data has been uploaded yet. "
-                    "Tell the user to upload a file via the Data Hub.")
 
         cols = db.query(
             """
@@ -102,12 +93,48 @@ def build_schema_context(tenant):
         lines = [
             "DATABASE SCHEMA (use fully-qualified names in SQL, e.g. public.stops or bfi.my_upload):"
         ]
-        for t in non_empty:
-            key = "{}.{}".format(t["table_schema"], t["table_name"])
-            lines.append("  {}({})".format(key, ", ".join(col_map.get(key, []))))
+        if non_empty:
+            for t in non_empty:
+                key = "{}.{}".format(t["table_schema"], t["table_name"])
+                lines.append("  {}({})".format(key, ", ".join(col_map.get(key, []))))
+        else:
+            lines.append("  (No data tables with rows found)")
+
+        # Append uploaded-source catalogue from sources_meta so the model knows
+        # exactly which CSV files the user has loaded and their table names.
+        try:
+            uploads = db.query(
+                """
+                SELECT name, table_name, num_rows, columns, uploaded_at
+                FROM bfi.sources_meta
+                ORDER BY uploaded_at DESC
+                LIMIT 20;
+                """
+            )
+            if uploads:
+                lines.append("")
+                lines.append("UPLOADED DATASETS (query via tenant schema — use list_data_sources tool for details):")
+                for u in uploads:
+                    col_names = u.get("columns") or []
+                    col_preview = ", ".join(col_names[:8])
+                    if len(col_names) > 8:
+                        col_preview += " ..."
+                    lines.append(
+                        "  {schema}.{table}  [{rows} rows]  columns: {cols}  (from: {name})".format(
+                            schema=tenant,
+                            table=u["table_name"],
+                            rows=u["num_rows"] or "?",
+                            cols=col_preview or "unknown",
+                            name=u["name"],
+                        )
+                    )
+        except Exception:
+            pass
+
         return "\n".join(lines)
     except Exception:
         return "DATABASE: Schema unavailable."
+
 
 
 # ---------------------------------------------------------------------------
@@ -119,38 +146,62 @@ You answer questions about transit data and any data the agency has uploaded.
 
 TOOLS AVAILABLE:
 - run_query  → Write and run any read-only SQL SELECT against the database. Use this for nearly all data questions.
+- list_data_sources → List all datasets available to the user: uploaded CSVs (tenant schema) and built-in public GTFS/transit tables. ALWAYS call this when the user asks what data is available, what they uploaded, or what sources/tables exist.
 - predict_route_ridership → Forecast future ridership using linear regression on historical data.
-- make_chart → Build a bar, pie, or radar chart from a SQL query. Use this whenever the answer is best shown as a graph (rankings, distributions, counts, comparisons, trends).
-- plot_on_map → Plot geographic points on the San Antonio map. Give it a SELECT that returns latitude and longitude columns (e.g. stop_lat/stop_lon from public.stops). Use this whenever the user asks to see, show, map, or locate things geographically.
-- show_live_buses → Plot VIA's live vehicle positions (real-time GTFS feed) on the map. Use when the user asks where buses are right now, live locations, or vehicle tracking.
-- show_heatmap → Display a US Census ACS demographic heat map of San Antonio ZIP codes (population, median income, poverty rate, etc.). Use when the user asks to see demographics, income, poverty, home values, or other census statistics geographically.
-- get_service_alerts → Read VIA's current real-time service alerts (detours, delays). Use when the user asks about alerts, disruptions, or service changes.
-- get_trip_updates → Read VIA's real-time trip updates (per-trip arrival/departure delays). Use when the user asks how late/on-time buses are, delays, or schedule adherence.
+- make_chart → Build a bar, pie, or radar chart from a SQL query. Use whenever the answer is best shown as a graph (rankings, distributions, counts, comparisons, trends).
+- plot_on_map → Plot geographic points on the San Antonio map. Give it a SELECT returning latitude/longitude columns (e.g. stop_lat/stop_lon from public.stops). Use whenever the user asks to see, show, map, or locate things geographically.
+- show_live_buses → Plot VIA's live vehicle positions on the map. Use when the user asks where buses are right now.
+- show_heatmap → Display a US Census ACS demographic heat map of San Antonio ZIP codes. Use for demographics, income, poverty, or census statistics.
+- get_service_alerts → Read VIA's current real-time service alerts (detours, delays).
+- get_trip_updates → Read VIA's real-time trip updates (per-trip arrival/departure delays).
 
 ANALYTICS & CHARTS:
-- When the user asks to analyze, compare, rank, break down, or chart data, call make_chart with a SELECT that returns one label column (x) and one numeric column (y).
+- When the user asks to analyze, compare, rank, break down, or chart data, call make_chart with a SELECT returning one label column (x) and one numeric column (y).
 - Choose chart_type: 'bar' for rankings/counts/comparisons, 'pie' for share-of-total, 'radar' for multi-metric profiles. Default to 'bar'.
-- Keep charts to ~15 rows max (use ORDER BY ... LIMIT). Always also explain the insight in your text answer.
+- Keep charts to ~15 rows max (use ORDER BY ... LIMIT). Always explain the insight in your text answer.
 
 MAPPING:
-- When a question is geographic ("where", "show me on a map", "locations of", "nearest"), prefer plot_on_map or show_live_buses so the user gets a visual.
-- plot_on_map SQL MUST return latitude/longitude (stops have stop_lat/stop_lon). Include a name column when possible (e.g. stop_name) and keep results under ~500 rows.
+- When a question is geographic ("where", "show me on a map", "locations of", "nearest"), prefer plot_on_map or show_live_buses.
+- plot_on_map SQL MUST return latitude/longitude columns. Include a name column when possible and keep results under ~500 rows.
+
+SAN ANTONIO ZIP CODE CENTROIDS — use these lat/lon in haversine queries when the user mentions a ZIP code:
+  78201:(29.4436,-98.5396)  78202:(29.4177,-98.4785)  78203:(29.4119,-98.4680)
+  78204:(29.4127,-98.5079)  78205:(29.4241,-98.4936)  78206:(29.4380,-98.4640)
+  78207:(29.4258,-98.5287)  78208:(29.4383,-98.4537)  78209:(29.4773,-98.4537)
+  78210:(29.3963,-98.4785)  78211:(29.3608,-98.5396)  78212:(29.4594,-98.4936)
+  78213:(29.5193,-98.5396)  78214:(29.3610,-98.4785)  78215:(29.4465,-98.4683)
+  78216:(29.5415,-98.4936)  78217:(29.5415,-98.4537)  78218:(29.4913,-98.4339)
+  78219:(29.4594,-98.4041)  78220:(29.4258,-98.4041)  78221:(29.3274,-98.4785)
+  78222:(29.3916,-98.3942)  78223:(29.3497,-98.4339)  78224:(29.3274,-98.5190)
+  78225:(29.3963,-98.5190)  78226:(29.3821,-98.5396)  78227:(29.3821,-98.5991)
+  78228:(29.4436,-98.5991)  78229:(29.5050,-98.5793)  78230:(29.5415,-98.5793)
+  78231:(29.5720,-98.5793)  78232:(29.5915,-98.4936)  78233:(29.5693,-98.3942)
+  78237:(29.4119,-98.5991)  78238:(29.4773,-98.5991)  78240:(29.5415,-98.6190)
+  78247:(29.6070,-98.4339)  78248:(29.6070,-98.5396)  78249:(29.5720,-98.6190)
+  78250:(29.5193,-98.6586)  78251:(29.4913,-98.6586)  78253:(29.4594,-98.7376)
+  78254:(29.5193,-98.7180)  78258:(29.6515,-98.4936)  78259:(29.6515,-98.4339)
+
+Example haversine for "stops near 78205":
+  SELECT stop_id, stop_name, stop_lat, stop_lon,
+    (3959 * acos(cos(radians(29.4241))*cos(radians(stop_lat))*cos(radians(stop_lon)-radians(-98.4936))+sin(radians(29.4241))*sin(radians(stop_lat)))) AS dist_miles
+  FROM public.stops
+  WHERE stop_lat IS NOT NULL
+  ORDER BY dist_miles
+  LIMIT 20;
 
 HOW TO USE run_query:
 - Write valid PostgreSQL SELECT statements only.
-- Use fully-qualified table names from the schema provided below (e.g. public.stops, bfi.my_upload).
+- Use fully-qualified table names (e.g. public.stops, bfi.my_upload).
 - You may JOIN across tables freely.
-- For "busiest stops": SELECT stop_id, stop_name, COUNT(*) FROM public.stop_times JOIN public.stops USING(stop_id) GROUP BY stop_id, stop_name ORDER BY COUNT(*) DESC LIMIT 10
-- For "busiest routes": JOIN public.trips and public.routes, GROUP BY route_id, ORDER BY COUNT(*) DESC
-- For "stops near downtown": ORDER BY distance using haversine formula on stop_lat/stop_lon
-- If the user asks about uploaded data, query the tenant schema tables.
+- If the user asks about uploaded data, check the UPLOADED DATASETS section of the schema context for the exact table name.
 
 RULES:
 - ALWAYS use run_query for data questions. Never say "no data available" without trying a query first.
 - Never ask the user to upload a file if a query can answer the question.
-- If a query returns no rows, say so and suggest why (e.g. no data uploaded yet).
+- When the user asks what datasets/sources are available, ALWAYS call list_data_sources first.
+- If a query returns no rows, say so and suggest why.
 - Answer concisely. Use Markdown tables for structured results.
-- Do not expose raw SQL errors to the user — summarize what went wrong plainly."""
+- Do not expose raw SQL errors — summarize what went wrong plainly."""
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +223,14 @@ TOOLS = [
                 },
                 "required": ["sql"],
             },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_data_sources",
+            "description": "List all datasets available to the user: uploaded CSV files in the tenant schema plus built-in public GTFS/transit tables. Use whenever the user asks what data is available, what they uploaded, or what tables/sources exist.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
     {
@@ -409,6 +468,58 @@ def run_tool(tenant, name, args, viz=None):
             "row_count": len(rows),
             "truncated": len(rows) > MAX_ROWS,
             "data": rows[:MAX_ROWS],
+        }
+
+    # ── list_data_sources ──────────────────────────────────────────────────
+    if name == "list_data_sources":
+        sources = []
+        # 1. Uploaded CSV files from sources_meta
+        try:
+            uploads = db.query(
+                """
+                SELECT name, table_name, num_rows, columns, uploaded_at, visibility
+                FROM bfi.sources_meta
+                ORDER BY uploaded_at DESC
+                LIMIT 50;
+                """
+            )
+            for u in uploads:
+                col_names = u.get("columns") or []
+                sources.append({
+                    "type": "upload",
+                    "name": u["name"],
+                    "table": "{}.{}".format(tenant, u["table_name"]),
+                    "rows": u["num_rows"],
+                    "columns": col_names[:20],
+                    "uploaded_at": u["uploaded_at"].isoformat() if u.get("uploaded_at") else None,
+                    "visibility": u.get("visibility", "private"),
+                })
+        except Exception as e:
+            sources.append({"type": "upload", "error": "Could not read uploads: {}".format(e)})
+
+        # 2. Built-in public GTFS tables (only those with rows)
+        gtfs_tables = ["stops", "routes", "trips", "stop_times", "calendar",
+                       "calendar_dates", "shapes", "fare_attributes", "fare_rules"]
+        gtfs_available = []
+        for tbl in gtfs_tables:
+            try:
+                r = db.query('SELECT COUNT(*) AS n FROM public."{}"'.format(tbl))
+                if r and int(r[0]["n"]) > 0:
+                    gtfs_available.append(tbl)
+            except Exception:
+                pass
+        if gtfs_available:
+            sources.append({
+                "type": "gtfs",
+                "name": "VIA Metropolitan Transit GTFS",
+                "tables": ["public.{}".format(t) for t in gtfs_available],
+                "description": "Fixed-route transit schedules: stops, routes, trips, stop_times, shapes, calendar",
+            })
+
+        return {
+            "total_sources": len(sources),
+            "sources": sources,
+            "note": "Use the 'table' field as the fully-qualified table name in SQL queries.",
         }
 
     # ── make_chart ─────────────────────────────────────────────────────────

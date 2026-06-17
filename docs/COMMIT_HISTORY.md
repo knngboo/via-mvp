@@ -1,104 +1,137 @@
 # VIA MVP — Commit History Summary
 
-A chronological summary of the project's development history, derived from the git
-log. All work to date landed on **2026-06-11**, with the final commits on
-**2026-06-11** as well. Three contributors are involved: **HudsonIsOnline**,
-**therocketter5**, and **adam-daoud**.
-
-## Overview
-
-The project is **VIA MVP**, a web application combining a React frontend with a
-Node.js backend, focused on data feedback/visualization and VIA public-transit
-data. Development progressed through four broad phases:
-
-1. **Initial scaffold & Figma assets** — project bootstrap, design assets, and the
-   core frontend.
-2. **Plugin architecture** — a pluggable system with VIA as the first plugin.
-3. **Backend + database** — MongoDB logic and import of VIA GTFS transit data.
-4. **Dashboard & conversational features** — a VIA dashboard, Dockerization, and
-   follow-up question support in the feedback experience.
+A chronological summary of the project's development history. Three original contributors (**HudsonIsOnline**, **therocketter5**, **adam-daoud**) bootstrapped the platform; ongoing development is maintained by the BFI engineering team.
 
 ---
 
-## Timeline (oldest → newest)
+## Phase 1 — Original Bootstrap (2026-06-11)
 
-### 1. `f9a383e` — Update *(HudsonIsOnline)*
-**Initial project scaffold.** ~250 files, ~39k insertions. Establishes the React
-frontend (`frontend/src` with `App.js`, components, contexts, pages, services) and
-brings in the full design system:
-- **Figma assets** — icon set, color swatches, typography, and exported design PNGs/ZIPs.
-- **Core components** — `AppSidebar`, `ChartView`, `MapView`, `FeedbackBubble`,
-  `SettingsModal`, plus a `hub/` flow (Upload, Clarification, Resolve, Submission
-  context, Success pages).
-- **Services** — `openai.js`, `csvParser.js`.
-- **Fonts, logos, favicons, and a `tx_zips.geojson`** dataset.
+### `f9a383e` — Update *(HudsonIsOnline)*
+**Initial project scaffold.** ~250 files, ~39k insertions. React frontend, design system (Figma assets, icon set, color swatches), core components (`AppSidebar`, `ChartView`, `MapView`, `FeedbackBubble`, `SettingsModal`), and services (`openai.js`, `csvParser.js`).
 
-### 2. `d35c961` — Update *(HudsonIsOnline)*
+### `d35c961` — Update *(HudsonIsOnline)*
 Minor: adds an entry to `.gitignore`.
 
-### 3. `f181e6d` — Add files via upload *(adam-daoud)*
+### `f181e6d` — Add files via upload *(adam-daoud)*
 Adds a `via-mvp-main.zip` archive (binary upload).
 
-### 4. `56686b9` — Update *(HudsonIsOnline)*
-**Feedback flow refactor.** Reworks `FeedbackBubble.jsx`, slims down `CsvContext`
-and `UploadPage` (removing ~213 lines of older logic), and expands `openai.js`
-(+81 lines). Adds README documentation.
+### `56686b9` — Update *(HudsonIsOnline)*
+**Feedback flow refactor.** Reworks `FeedbackBubble.jsx`, slims down `CsvContext` and `UploadPage`, and expands `openai.js`. Adds README documentation.
 
-### 5. `ac9f47d` — Added Plugin support *(HudsonIsOnline)*
-**Introduces the plugin architecture.** Adds a `Plugins/` directory with a registry
-(`Plugins/index.js`), the first **VIA plugin** (`Plugins/Via` with Dashboard and
-ParseLogic), and frontend wiring: `PluginDashboardPage`, sidebar entries,
-`SettingsModal` hooks, and a `craco.config.js` build override.
+### `ac9f47d` — Added Plugin support *(HudsonIsOnline)*
+**Plugin architecture.** Adds `Plugins/` directory with registry (`Plugins/index.js`), first **VIA plugin** (Dashboard + ParseLogic), `PluginDashboardPage`, sidebar entries, `SettingsModal` hooks, `craco.config.js`.
 
-### 6. `9615420` — Added plugin support, fixed readme *(HudsonIsOnline)*
-Documentation follow-up to the plugin work; updates `README.md`.
+### `9615420` — Added plugin support, fixed readme *(HudsonIsOnline)*
+Documentation follow-up to the plugin work.
 
-### 7. `7df57d8` — New MongoDB Logic and VIA Public Transit Data Import *(therocketter5)*
-**Largest commit by data volume** (~942k insertions, dominated by GTFS data files).
-Stands up the backend and database layer:
-- **Backend service** — `backend/server.js`, `agent.js`, `sources.js`,
-  `import-gtfs.js`, with Docker and pnpm workspace config.
-- **VIA GTFS data** — `backend/google_transit/` (stops, routes, trips, shapes,
-  stop_times, transfers, calendar).
-- **Frontend services** — `agent.js`, `api.js`, `sources.js` to talk to the new backend.
-- **Infra** — `docker-compose.yml`, Dockerfiles, nginx config, `.env.example`, README.
-- Note: also pulls in a nested `via-mvp-main/...` copy of the project.
+### `7df57d8` — New MongoDB Logic and VIA Public Transit Data Import *(therocketter5)*
+**Largest commit.** Stands up the backend: `backend/server.js`, `agent.js`, `sources.js`, `import-gtfs.js`, Docker + pnpm workspace, full VIA GTFS data files, frontend services (`agent.js`, `api.js`, `sources.js`), `docker-compose.yml`.
 
-### 8. `852e89b` — Merge branch 'main' *(therocketter5)*
-Merge of upstream `main` from the GitHub remote.
+### `852e89b` — Merge branch 'main' *(therocketter5)*
+### `910235c` — Merge branch 'DBWIP' *(therocketter5)*
 
-### 9. `910235c` — Merge branch 'DBWIP' *(therocketter5)*
-Merge of the database work-in-progress branch into the mainline.
+### `788eadb` — Created Dummy Via Dash + Dockerfile *(therocketter5)*
+**VIA dashboard + containerization.** `ViaDashboard.jsx`/`.css`, backend `stats.js`, improved Docker setup.
 
-### 10. `788eadb` — Created Dummy Via Dash + Dockerfile *(therocketter5)*
-**VIA dashboard + containerization.** Fleshes out `Plugins/Via/Dashboard`
-(`ViaDashboard.jsx`/`.css`), adds backend `stats.js` and a stats endpoint in
-`server.js`, and improves the Docker setup (`.dockerignore`, `frontend/Dockerfile`,
-`docker-compose.yml`).
+### `c2a5297` — Added followup support *(HudsonIsOnline)*
+**Conversational follow-ups.** Adds `FollowUpQuestions` component + CSS, extends `FeedbackBubble`, grows `openai.js` to support follow-up question generation.
 
-### 11. `c2a5297` — Added followup support *(HudsonIsOnline)*
-**Conversational follow-ups.** Adds a `FollowUpQuestions` component (+CSS),
-extends `FeedbackBubble`, and grows `openai.js` (+75 lines) to support follow-up
-question generation in the feedback experience.
-
-### 12. `12c52e2` — Buffi is buffering *(HudsonIsOnline)*  *(current HEAD)*
-One-line tweak to `FeedbackBubble.jsx` (loading/buffering state for the "Buffi"
-agent).
+### `12c52e2` — Buffi is buffering *(HudsonIsOnline)*
+One-line tweak to `FeedbackBubble.jsx` (loading/buffering state for the "Buffi" agent).
 
 ---
 
-## Contributor breakdown
+## Phase 2 — Platform Rewrite (2026-06-15 → 2026-06-16)
 
-| Contributor      | Commits | Focus |
-|------------------|---------|-------|
-| HudsonIsOnline   | 7       | Frontend, plugin system, feedback/follow-up UX |
-| therocketter5    | 4       | Backend, MongoDB, GTFS import, Docker, merges |
-| adam-daoud       | 1       | Asset upload |
+> Complete architectural overhaul: Python/Flask backend replacing Node/Express, PostgreSQL replacing MongoDB, full security hardening, tiling workspace replacing single-page chat.
 
-## Notable artifacts in the tree
-- **Plugin system** under `Plugins/`, with VIA as the reference plugin.
-- **GTFS transit dataset** under `backend/google_transit/` (very large text files).
-- **Design assets** under `Figma/`, `FigmaDesigns/`, `newFigmaDesigns/`.
-- **Dockerized** frontend + backend via `docker-compose.yml`.
-- A nested duplicate project tree (`via-mvp-main/via-mvp-main/via-mvp/`) introduced
-  in `7df57d8` — likely a candidate for cleanup.
+### Backend rewrite
+- **Flask + PostgreSQL** replacing the original Node.js + MongoDB stack
+- `app.py` — JWT auth, HttpOnly cookie, RBAC decorators (admin/editor/analyzer/viewer), chat SSE streaming, rate limiting, CSP headers
+- `openai_client.py` — Full tool-calling agent with `run_query`, `make_chart`, `plot_on_map`, `show_live_buses`, `show_heatmap`, `get_service_alerts`, `get_trip_updates`, `predict_route_ridership`
+- `sources.py` — CSV upload, `bfi.sources_meta` table, tenant schema isolation, visibility RBAC
+- `census.py` — US Census ACS ZIP code heatmap data for San Antonio
+- `realtime.py` — GTFS-RT vehicle positions + service alerts
+- `import_gtfs.py` — Idempotent GTFS loader (runs on first login, background thread)
+- `db.py` — PostgreSQL connection pool + helpers
+- `tests/test_smoke.py` — Integration smoke test suite (registration, auth, RBAC, upload, feedback)
+- Security: timing-safe admin secret, SQL injection guard (`is_safe_select`), column sanitization, rate limiters
+
+### Frontend architecture
+- **WorkspacePage** introduced — multi-pane tiling interface with split/close/drag-swap/drag-resize
+- **MapView** — Leaflet with point plotting, census heatmap, live buses
+- **ChartView** — Recharts bar/pie/radar with chart type persistence
+- **AppSidebar** — collapsible navigation sidebar
+- **SettingsModal** — model selector (GPT-4o / GPT-4o-mini) + API key input
+- **CanvasDashboard** — stats tile (routes, stops, trips, datasets)
+- **CanvasSources** — data source browser with preview
+
+### UX session highlights
+- Sidebar collapse → icon-only mode with smooth CSS transition
+- Sidebar collapse controlled by edge tab (not full button)
+- Split/Close/Duplicate buttons moved to pane header drag bar
+- Pane title shows the active view name
+- Drop-target highlight when dragging panes
+
+---
+
+## Phase 3 — Buffi Tile Editor & Workspace Polish (2026-06-17)
+
+> This session transforms Buffi from a standalone chatbot into a live tile editor and completes the workspace UX.
+
+### Backend: Buffi Intelligence Upgrades
+
+**`openai_client.py`**
+- `build_schema_context` now queries `sources_meta` and appends an **UPLOADED DATASETS** block to the system prompt — Buffi always knows your uploaded file names, table names, row counts, and column lists
+- New **`list_data_sources` tool** — Buffi can explicitly enumerate all available data (uploads + GTFS tables) when the user asks what's available
+- **San Antonio ZIP centroid table** embedded in the system prompt (40+ ZIP → lat/lon pairs) so haversine queries for "find stops near 78205" generate correct SQL automatically
+- **Haversine example query** included in the prompt to reduce geographic query hallucinations
+- System prompt updated: `list_data_sources` rule, ZIP usage instructions, "never say no data without trying a query" reinforcement
+
+### Frontend: Tiling Workspace
+
+**`WorkspacePage.jsx`**
+- **`duplicatePane` useCallback** — deep-clones the current pane state (map points, chart data, active view, sidebar state, chat history) via JSON round-trip and opens it side-by-side at 50/50 in the same view. Bubble starts closed; conv ref is cleared.
+- **Duplicate button** (⧉ copy icon) added to every pane header between Split-V and the view title
+- **`tileContext` computed per pane** in `renderTree` — describes the current tile state:
+  - Map: `"User is viewing a MAP tile titled 'Transit Stops' showing 42 geographic points."`
+  - Chart: `"User is viewing a CHART tile titled 'Ridership by Route' (bar chart, 15 data points)."`
+- `tileContext`, `tileMode`, `tileView` wired from WorkspacePane → floating bubble → FeedbackBubble
+
+**`FeedbackBubble.jsx`**
+- Accepts `tileMode`, `tileView`, `tileContext` props
+- When `tileMode=true`:
+  - **Context injection** — API message is prefixed with `[VIEW CONTEXT: ...]` before sending; chat history stores only the clean user text
+  - **Tile-specific suggestions** — Map shows ["Filter stops within 2 miles of downtown", "Show live buses", "Overlay income heatmap", "Map stops for route 100"]; Chart shows ["Change to pie chart", "Show top 10", "Sort by value", "Chart ridership by route"]
+  - **View-specific placeholder** — "Modify this map..." / "Modify this chart..."
+  - **Tile editor badge** in landing state — shows 🗺️ "Map Editor" or 📊 "Chart Editor" with subtitle label
+- `ChatInput` accepts dynamic `placeholder` prop
+
+**Bubble header redesign**
+- Header now shows `✦ buffi` + a small pill badge: `[map editor]` or `[chart editor]`
+- `ws-bubble-title-group`, `ws-bubble-subtitle`, `tile-editor-badge`, `tile-editor-icon` CSS classes added
+
+**`Workspace.css`**
+- `.ws-bubble-title-group` — flex container for title + subtitle pill
+- `.ws-bubble-subtitle` — uppercase pill badge (10px, grey background)
+- `.tile-editor-badge` — landing state badge with BFI brand color tint
+- `.tile-editor-icon` — emoji icon sizing in landing badge
+
+### Chat Duplication Fixes (from prior session)
+- `newChat` and `loadConv` accept `curState` from render tree to bypass React Strict Mode double-invoke
+- `setSavedConvs` called at top-level event handler (not nested inside `setPaneStates` updater)
+- `uid()` uses `Date.now() + Math.random()` to prevent key collisions across hot-reloads
+
+---
+
+## Pending / Roadmap
+
+- [ ] Complete conversation history persistence to `chat_messages` DB table
+- [ ] JWT token blocklist (server-side revocation on logout)
+- [ ] CI/CD: update `ci.yml` from legacy npm to `pip`/`pytest`
+- [ ] AWS EC2 deployment walkthrough
+- [ ] TLS/HTTPS for production Nginx
+- [ ] Automated nightly `pg_dump`
+- [ ] Map filter bar — "Active filters" strip showing what Buffi last applied (Buffi tile editor Phase 2)
+- [ ] Intent pills above chat input (🗺️ Map it / 📊 Chart it / 📋 Table / 💬 Ask)
+- [ ] Context card (dataset selector) persisted above chat input for Buffi dataset focus

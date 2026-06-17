@@ -137,6 +137,7 @@ export default function AppSidebar() {
   const isChat = pathname === '/chat';
   const isSources = pathname === '/sources';
   const isDashboard = pathname === '/dashboard';
+  const isWorkspace = pathname === '/workspace';
 
   const activeId = activeConv && activeConv.id;
   const hasActive = activeConv && Array.isArray(activeConv.chatHistory) && activeConv.chatHistory.length > 0;
@@ -259,6 +260,22 @@ export default function AppSidebar() {
           </svg>
           {expanded && <span className="strip-label">Dashboard</span>}
         </button>
+        {/* Workspace — tiling canvas prototype (boo branch) */}
+        {['admin', 'editor', 'analyzer'].includes(user?.role) && (
+          <button
+            className={`icon-strip-btn${isWorkspace ? ' icon-strip-btn--active' : ''}`}
+            title="Workspace"
+            onClick={() => navigate('/workspace')}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="strip-icon">
+              <rect x="3" y="3" width="8" height="8" rx="1" />
+              <rect x="13" y="3" width="8" height="8" rx="1" />
+              <rect x="3" y="13" width="8" height="8" rx="1" />
+              <rect x="13" y="13" width="8" height="8" rx="1" />
+            </svg>
+            {expanded && <span className="strip-label">Workspace</span>}
+          </button>
+        )}
         {['admin', 'editor'].includes(user?.role) && (
           <button
             className={`icon-strip-btn${isSources ? ' icon-strip-btn--active' : ''}`}
