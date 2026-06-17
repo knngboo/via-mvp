@@ -807,7 +807,7 @@ def stream_openai(messages, model=DEFAULT_MODEL, api_key=None):
 # ---------------------------------------------------------------------------
 # Main entry point — runs the tool loop, returns messages ready to stream
 # ---------------------------------------------------------------------------
-def prepare_chat(user_message, history=None, tenant="bfi", model=DEFAULT_MODEL, api_key=None):
+def prepare_chat(user_message, history=None, tenant="bfi", model=DEFAULT_MODEL, api_key=None, plugin_context=""):
     """
     Build context and run the (non-streaming) tool-calling loop.
 
@@ -819,9 +819,18 @@ def prepare_chat(user_message, history=None, tenant="bfi", model=DEFAULT_MODEL, 
 
     Raises MaxToolRoundsError if the model never settles on a text answer.
     `api_key`, when provided, is a user-supplied key that overrides the env var.
+    `plugin_context`, when provided, is the agency context string from the active
+    frontend plugin manifest — prepended to the system prompt so Buffi knows
+    which agency it is serving before reading the schema.
     """
     schema_context = build_schema_context(tenant)
-    system_prompt = "{}\n\n{}".format(SYSTEM_PROMPT_BASE, schema_context)
+
+    # Build the system prompt:
+    #   [plugin agency context] → [base Buffi instructions] → [schema context]
+    prompt_parts = [SYSTEM_PROMPT_BASE]
+    if plugin_context:
+        prompt_parts = ["CURRENT AGENCY CONTEXT (from the active plugin):\n" + plugin_context, SYSTEM_PROMPT_BASE]
+    system_prompt = "{}\n\n{}".format("\n\n".join(prompt_parts), schema_context)
 
     messages = [{"role": "system", "content": system_prompt}]
     for m in history or []:
@@ -830,6 +839,7 @@ def prepare_chat(user_message, history=None, tenant="bfi", model=DEFAULT_MODEL, 
         role = "user" if m.get("from") == "user" else "assistant"
         messages.append({"role": role, "content": m["text"]})
     messages.append({"role": "user", "content": user_message})
+
 
     # Map/chart tools write their output here; the latest result of each wins.
     viz = {}

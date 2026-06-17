@@ -2,6 +2,7 @@ import React, { useContext } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthContext } from './context/AuthContext';
 import { CsvProvider } from './context/CsvContext';
+import { PluginProvider } from './context/PluginContext';
 import './App.css';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -54,25 +55,27 @@ const ViewerRoute = ({ children }) => {
 const App = () => {
     return (
         <CsvProvider>
-            <Router>
-                <Routes>
-                    <Route path="/login"     element={<Login />} />
-                    <Route path="/register"  element={<Register />} />
-                    {/* Workspace is the primary interface */}
-                    <Route path="/workspace" element={<AnalyzerRoute><WorkspacePage /></AnalyzerRoute>} />
-                    {/* Legacy routes redirect into workspace */}
-                    <Route path="/chat"      element={<Navigate to="/workspace" replace />} />
-                    <Route path="/dashboard" element={<Navigate to="/workspace" replace />} />
-                    {/* Upload restricted to editors and admins */}
-                    <Route path="/sources"   element={<EditorRoute><UploadPage /></EditorRoute>} />
-                    {/* Admin panel for managing users */}
-                    <Route path="/admin"     element={<AdminRoute><AdminPage /></AdminRoute>} />
-                    <Route path="/queue"     element={<Navigate to="/sources" replace />} />
-                    <Route path="/upload"    element={<Navigate to="/sources" replace />} />
-                    {/* Root → workspace */}
-                    <Route path="/"          element={<Navigate to="/workspace" />} />
-                </Routes>
-            </Router>
+            <PluginProvider>
+                <Router>
+                    <Routes>
+                        <Route path="/login"     element={<Login />} />
+                        <Route path="/register"  element={<Register />} />
+                        {/* Workspace is the primary interface */}
+                        <Route path="/workspace" element={<AnalyzerRoute><WorkspacePage /></AnalyzerRoute>} />
+                        {/* Legacy routes redirect into workspace */}
+                        <Route path="/chat"      element={<Navigate to="/workspace" replace />} />
+                        <Route path="/dashboard" element={<Navigate to="/workspace" replace />} />
+                        {/* Upload restricted to editors and admins */}
+                        <Route path="/sources"   element={<EditorRoute><UploadPage /></EditorRoute>} />
+                        {/* Admin panel for managing users */}
+                        <Route path="/admin"     element={<AdminRoute><AdminPage /></AdminRoute>} />
+                        <Route path="/queue"     element={<Navigate to="/sources" replace />} />
+                        <Route path="/upload"    element={<Navigate to="/sources" replace />} />
+                        {/* Root → workspace */}
+                        <Route path="/"          element={<Navigate to="/workspace" />} />
+                    </Routes>
+                </Router>
+            </PluginProvider>
         </CsvProvider>
     );
 };

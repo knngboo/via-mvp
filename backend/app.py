@@ -361,12 +361,17 @@ def chat_stream():
     message = body.get("message")
     history = body.get("history")
     requested_model = body.get("model")
+    plugin_context = body.get("plugin_context", "")
 
     if not message:
         return jsonify({"error": "Message is required"}), 400
     # B6: hard limits — prevent multi-MB payloads reaching OpenAI
     if not isinstance(message, str) or len(message) > 4000:
         return jsonify({"error": "Message too long (max 4000 characters)."}), 400
+    # Sanitise plugin_context — must be a short string (max 2000 chars)
+    if not isinstance(plugin_context, str):
+        plugin_context = ""
+    plugin_context = plugin_context[:2000].strip()
 
     safe_history = []
     if isinstance(history, list):
@@ -385,7 +390,11 @@ def chat_stream():
 
     # Run the (blocking) tool-calling loop first, then stream the final answer.
     try:
-        messages, viz = prepare_chat(message, safe_history, tenant, model, api_key=client_key)
+        messages, viz = prepare_chat(
+            message, safe_history, tenant, model,
+            api_key=client_key,
+            plugin_context=plugin_context,
+        )
     except MaxToolRoundsError:
         return jsonify({"error": "Buffi exceeded maximum reasoning steps."}), 500
     except Exception as error:

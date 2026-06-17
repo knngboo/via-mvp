@@ -27,6 +27,7 @@ import MapView from '../components/MapView';
 import ChartView from '../components/ChartView';
 import CanvasDashboard from '../components/CanvasDashboard';
 import CanvasSources from '../components/CanvasSources';
+import { usePlugin } from '../context/PluginContext';
 import '../styles/Workspace.css';
 
 // ── View catalogue ────────────────────────────────────────────────────────────
@@ -466,6 +467,7 @@ export default function WorkspacePage() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   const total = countPanes(layout);
+  const { activePlugin } = usePlugin();
 
   function renderTree(node) {
     if (node.kind === 'split') {
@@ -532,6 +534,10 @@ export default function WorkspacePage() {
         onToggleSidebar={() => toggleSidebar(node.id)}
         onToggleBubble={(open) => patchState(node.id, { bubbleOpen: open })}
         tileContext={tileCtx}
+        pluginContext={activePlugin?.buffi?.context ?? ''}
+        pluginSuggestions={activePlugin?.buffi?.suggestions}
+        pluginMapSuggestions={activePlugin?.buffi?.mapSuggestions}
+        pluginChartSuggestions={activePlugin?.buffi?.chartSuggestions}
         onPaneDragStart={(e) => handlePaneDragStart(node.id, e)}
         onDragOver={(e) => handleDragOver(node.id, e)}
         onDragLeave={handleDragLeave}
@@ -609,6 +615,7 @@ function WorkspacePane({
   onSplitH, onSplitV, onDuplicate, onClose,
   onNewChat, onLoadConv, onDeleteConv, onClearAllConvs, onToggleSidebar, onToggleBubble,
   tileContext,
+  pluginContext, pluginSuggestions, pluginMapSuggestions, pluginChartSuggestions,
   onPaneDragStart, onDragOver, onDragLeave, onDrop, onDragEnd,
 }) {
   const [historyExpanded, setHistoryExpanded] = useState(false);
@@ -877,7 +884,12 @@ function WorkspacePane({
 
           {pane.activeView === 'chat' && (
             <div className="chat-panel ws-chat-fill">
-              <FeedbackBubble key={`fb-${pane.id}`} {...chatProps} />
+              <FeedbackBubble
+                key={`fb-${pane.id}`}
+                {...chatProps}
+                pluginContext={pluginContext}
+                suggestions={pluginSuggestions}
+              />
             </div>
           )}
 
@@ -938,6 +950,12 @@ function WorkspacePane({
                       tileMode={true}
                       tileView={pane.activeView}
                       tileContext={tileContext}
+                      pluginContext={pluginContext}
+                      suggestions={
+                        pane.activeView === 'map'
+                          ? (pluginMapSuggestions ?? undefined)
+                          : (pluginChartSuggestions ?? undefined)
+                      }
                     />
                   </div>
                 </>

@@ -29,7 +29,8 @@
   border-bottom: 1px solid var(--Grey-200);
   padding: 0 12px;
   gap: 4px;
-  z-index: 200;
+  position: relative;   /* ensure nav forms its own stacking context */
+  z-index: 9000;        /* must beat all map/canvas overlays */
   user-select: none;
 }
 
@@ -44,6 +45,174 @@
   height: 24px;
   width: auto;
 }
+
+/* ── Agency Switcher ─────────────────────────────────────────────────────── */
+.agency-switcher {
+  position: relative;
+  flex-shrink: 0;
+  margin-right: 2px;
+}
+
+/* Branded pill trigger */
+.agency-pill {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 9px 0 7px;
+  border: 1.5px solid color-mix(in srgb, var(--agency-color, #CB2128) 30%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--agency-color, #CB2128) 8%, transparent);
+  color: var(--agency-color, #CB2128);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: 'Saans TRIAL', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
+}
+.agency-pill:hover {
+  background: color-mix(in srgb, var(--agency-color, #CB2128) 14%, transparent);
+  border-color: color-mix(in srgb, var(--agency-color, #CB2128) 50%, transparent);
+}
+.agency-pill-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+.agency-pill-name {
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.agency-pill-caret {
+  opacity: 0.6;
+  margin-left: 1px;
+}
+
+/* Dropdown panel */
+.agency-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 280px;
+  background: var(--Grey-50, #fafafa);
+  border: 1px solid var(--Grey-200, #e5e7eb);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.06);
+  z-index: 9999;        /* must escape nav stacking context and beat everything */
+  overflow: hidden;
+  padding: 6px;
+}
+
+.agency-dropdown-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.agency-dropdown-label {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--Grey-400, #9ca3af);
+  padding: 4px 8px 2px;
+  display: block;
+}
+
+.agency-dropdown-sep {
+  height: 1px;
+  background: var(--Grey-200, #e5e7eb);
+  margin: 4px 0;
+}
+
+/* Individual agency row */
+.agency-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  transition: background 0.12s;
+}
+.agency-dropdown-item:hover {
+  background: var(--Grey-100, #f3f4f6);
+}
+.agency-dropdown-item--active {
+  background: color-mix(in srgb, var(--agency-color, #CB2128) 8%, transparent);
+}
+.agency-dropdown-item--preview {
+  opacity: 0.8;
+}
+.agency-dropdown-item--muted {
+  opacity: 0.7;
+}
+
+/* Left colour dot */
+.agency-item-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--agency-color, #6B7280);
+}
+
+.agency-item-icon {
+  font-size: 15px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.agency-item-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.agency-item-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--Grey-900, #111827);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.agency-item-desc {
+  font-size: 10.5px;
+  color: var(--Grey-500, #6b7280);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agency-preview-tag {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--Grey-400, #9ca3af);
+  background: var(--Grey-200, #e5e7eb);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.agency-item-check {
+  flex-shrink: 0;
+  color: var(--agency-color, #CB2128);
+}
+
+
 
 /* Unified navigation tab strip */
 .gnav-nav {
@@ -340,6 +509,34 @@
   line-height: 1.6;
   text-align: center;
 }
+
+/* Plugin-provided (pre-wired) source row — non-interactive */
+.cs-plugin-source-row {
+  cursor: default;
+  background: color-mix(in srgb, var(--Grey-100) 60%, transparent);
+  border-radius: 6px;
+  margin: 1px 6px;
+  padding: 7px 10px;
+}
+.cs-plugin-source-row:hover {
+  background: color-mix(in srgb, var(--Grey-100) 90%, transparent);
+}
+
+/* Refresh cadence badge */
+.cs-plugin-refresh-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+
 
 .canvas-source-row {
   display: flex;

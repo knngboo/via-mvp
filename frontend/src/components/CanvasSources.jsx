@@ -15,6 +15,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import apiService from '../services/api';
+import { usePlugin } from '../context/PluginContext';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 const fmt = (bytes) => {
@@ -252,6 +253,9 @@ export default function CanvasSources() {
   const [selected, setSelected] = useState(null);
   const [summary,  setSummary]  = useState({ text: '', live: false, loading: true });
 
+  const { activePlugin } = usePlugin();
+  const pluginSources = activePlugin?.dataSources ?? [];
+
   // Fetch sources list
   useEffect(() => {
     let active = true;
@@ -361,11 +365,15 @@ export default function CanvasSources() {
   // ── List mode ─────────────────────────────────────────────────────────────
   const totalVisible = filtered.length;
 
+  // Refresh badge color
+  const refreshColor = (r) => r === 'realtime' ? '#22c55e' : r === 'daily' ? '#3b82f6' : '#8C94CE';
+  const refreshLabel = (r) => r === 'realtime' ? 'Live' : r === 'daily' ? 'Daily' : r === 'weekly' ? 'Weekly' : r === 'monthly' ? 'Monthly' : r === 'annual' ? 'Annual' : r;
+
   return (
     <div className="canvas-sources">
       <div className="canvas-sources-header">
         <span className="canvas-sources-title">Sources</span>
-        <span className="canvas-sources-count">{sources.length} available</span>
+        <span className="canvas-sources-count">{sources.length} uploaded</span>
       </div>
 
       <div className="canvas-sources-search-wrap">
@@ -383,11 +391,61 @@ export default function CanvasSources() {
       </div>
 
       <div className="canvas-sources-body">
+
+        {/* ── Agency Data — plugin-provided pre-wired sources ── */}
+        {pluginSources.length > 0 && (
+          <div className="cs-cat-section">
+            <div className="cs-cat-header">
+              <span className="cs-cat-icon" style={{ color: activePlugin?.color ?? '#8C94CE' }}>
+                <span style={{ fontSize: 10 }}>{activePlugin?.icon ?? '🏛'}</span>
+              </span>
+              <span className="cs-cat-label" style={{ color: activePlugin?.color ?? '#8C94CE' }}>
+                {activePlugin?.shortName} Agency Data
+              </span>
+              <span className="cs-cat-count">{pluginSources.length}</span>
+            </div>
+            {pluginSources.map(ds => (
+              <div key={ds.id} className="canvas-source-row cs-plugin-source-row">
+                <div className="canvas-source-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
+                    width="14" height="14">
+                    <ellipse cx="12" cy="5" rx="9" ry="3"/>
+                    <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+                    <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+                  </svg>
+                </div>
+                <div className="canvas-source-info">
+                  <span className="canvas-source-name">{ds.name}</span>
+                  <div className="canvas-source-meta">
+                    <span className="cs-plugin-refresh-badge"
+                      style={{ color: refreshColor(ds.refresh), borderColor: `${refreshColor(ds.refresh)}33`, background: `${refreshColor(ds.refresh)}11` }}>
+                      {refreshLabel(ds.refresh)}
+                    </span>
+                    <span className="canvas-source-dot">·</span>
+                    <span>{ds.category}</span>
+                    {ds.autoLoaded
+                      ? <><span className="canvas-source-dot">·</span><span style={{ color: '#22c55e' }}>auto-loaded</span></>
+                      : <><span className="canvas-source-dot">·</span><span style={{ color: '#f59e0b' }}>upload required</span></>
+                    }
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {loading && <p className="canvas-sources-empty">Loading…</p>}
 
-        {!loading && totalVisible === 0 && (
+        {!loading && totalVisible === 0 && pluginSources.length === 0 && (
           <p className="canvas-sources-empty">
             {search ? 'No sources match your search.' : 'No sources yet. Upload data from the Upload tab.'}
+          </p>
+        )}
+
+        {!loading && totalVisible === 0 && pluginSources.length > 0 && !search && (
+          <p className="canvas-sources-empty" style={{ fontSize: 11, color: 'var(--Grey-400)' }}>
+            No uploaded data yet — agency data above is pre-wired.
           </p>
         )}
 

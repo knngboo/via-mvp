@@ -64,6 +64,9 @@ export default function FeedbackBubble({
   tileMode = false,   // true when acting as a tile editor (not full chat)
   tileView = '',      // 'map' | 'chart' — which view is active
   tileContext = '',   // description of current tile state, injected into API call
+  // Plugin-provided overrides
+  pluginContext = '', // agency context prepended to every API call
+  suggestions,       // plugin-specific suggestion set (overrides built-in defaults)
 }) {
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
@@ -122,11 +125,18 @@ export default function FeedbackBubble({
     setChatHistory(prev => [...prev, userMsg]);
     if (setLastQuery) setLastQuery(trimmed);
     
-    // In tile-editor mode, prefix the API message with the current tile context.
-    // The chat history only stores the clean user text (no prefix shown).
-    const messageForApi = (tileMode && tileContext)
-      ? `[VIEW CONTEXT: ${tileContext}]\n\nUser instruction: ${trimmed}`
-      : trimmed;
+    // Build the API message:
+    //   • [PLUGIN context] — agency identity (always, if provided)
+    //   • [TILE context]   — current tile state (only in tile-editor mode)
+    //   • User instruction — shown in the chat history
+    // The chat history only stores the clean user text (no prefixes shown).
+    let messageForApi = trimmed;
+    const parts = [];
+    if (pluginContext) parts.push(`[AGENCY CONTEXT]\n${pluginContext}`);
+    if (tileMode && tileContext) parts.push(`[TILE CONTEXT]\n${tileContext}`);
+    if (parts.length) {
+      messageForApi = `${parts.join('\n\n')}\n\n[USER INSTRUCTION]\n${trimmed}`;
+    }
     
     // Automatically open the map panel ONLY if the user explicitly asks for a map
     if (setMapTitle) setMapTitle(title);
@@ -161,7 +171,13 @@ export default function FeedbackBubble({
           'Content-Type': 'application/json',
           ...(apiKey ? { 'X-OpenAI-Key': apiKey } : {}),
         },
-        body: JSON.stringify({ message: messageForApi, history: chatHistory, model: getStoredModel() }),
+        body: JSON.stringify({
+          message:        messageForApi,
+          history:        chatHistory,
+          model:          getStoredModel(),
+          plugin_context: pluginContext || '',
+        }),
+
         signal: controller.signal
       });
       
@@ -355,10 +371,25 @@ export default function FeedbackBubble({
 
   // ── Landing State ──
   if (chatHistory.length === 0 && !loading) {
-    // In tile-editor mode, pick view-specific suggestions
-    const activeSuggestions = tileMode
-      ? (tileView === 'map' ? MAP_TILE_QUESTIONS : CHART_TILE_QUESTIONS)
-      : SUGGESTED_QUESTIONS;
+    // Resolve which suggestion set to use.
+    // Priority: plugin-provided suggestions > built-in tile defaults > SUGGESTED_QUESTIONS
+    // Plugin suggestions may be text-only {text} — normalize to include an icon.
+    const normalizeSuggestions = (arr) =>
+      (arr || []).map(s => ({
+        text: s.text,
+        icon: s.icon
+          // If the plugin provided a pre-resolved icon string, use it;
+          // otherwise pick one based on keywords in the suggestion text
+          ?? (s.text.toLowerCase().includes('map') || s.text.toLowerCase().includes('plot') || s.text.toLowerCase().includes('show') ? suiteMapsIcon
+            : s.text.toLowerCase().includes('chart') || s.text.toLowerCase().includes('pie') || s.text.toLowerCase().includes('bar') ? suiteChartsIcon
+            : suiteDataIcon),
+      }));
+
+    const activeSuggestions = suggestions
+      ? normalizeSuggestions(suggestions)
+      : tileMode
+        ? (tileView === 'map' ? MAP_TILE_QUESTIONS : CHART_TILE_QUESTIONS)
+        : SUGGESTED_QUESTIONS;
 
     const landingPlaceholder = tileMode
       ? (tileView === 'map' ? 'Modify this map... e.g. "filter stops near ZIP 78205"' : 'Modify this chart... e.g. "change to pie chart"')

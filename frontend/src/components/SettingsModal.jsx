@@ -1,12 +1,14 @@
-import { useState, useEffect } from 'react';
-import { getActivePluginId, setActivePluginId, useTenantPlugins } from 'Plugins';
+import { useState } from 'react';
+import { usePlugin } from '../context/PluginContext';
 
-// E-2: Settings Modal — three sections:
-//   1. Account   — username and role display
-//   2. Active Agency — plugin switcher (filtered to this tenant's allowed plugins)
-//   3. AI Model  — which GPT model Buffi uses
+// E-2: Settings Modal — four sections:
+//   1. Account      — username and role display
+//   2. Active Agency — plugin switcher (synced with the nav-bar AgencySwitcher)
+//   3. AI Model     — which GPT model Buffi uses
+//   4. OpenAI Key   — optional user-supplied API key
 //
 // Props: user, onClose, onLogout
+
 
 const MODEL_KEY      = 'buffi_model';
 const APIKEY_KEY     = 'buffi_openai_key';
@@ -38,23 +40,13 @@ function setStoredApiKey(key) {
 }
 
 export default function SettingsModal({ user, onClose, onLogout }) {
-    const { plugins: tenantPlugins } = useTenantPlugins();
-    const [activePlugin, setActivePlugin] = useState(getActivePluginId);
-    const [model, setModel]               = useState(getStoredModel);
-    const [apiKey, setApiKey]             = useState(getStoredApiKey);
-    const [keyStatus, setKeyStatus]       = useState('');
-
-    // Keep in sync if another tab changes the plugin.
-    useEffect(() => {
-        const refresh = () => setActivePlugin(getActivePluginId());
-        window.addEventListener('buffi:plugin-change', refresh);
-        return () => window.removeEventListener('buffi:plugin-change', refresh);
-    }, []);
+    const { activePlugin, setActivePlugin, allPlugins } = usePlugin();
+    const [model, setModel]   = useState(getStoredModel);
+    const [apiKey, setApiKey] = useState(getStoredApiKey);
+    const [keyStatus, setKeyStatus] = useState('');
 
     const handlePluginChange = (e) => {
-        const id = e.target.value;
-        setActivePlugin(id);
-        setActivePluginId(id);
+        setActivePlugin(e.target.value);
     };
 
     const handleModelChange = (e) => {
@@ -134,20 +126,43 @@ export default function SettingsModal({ user, onClose, onLogout }) {
                 {/* Section: Active Agency */}
                 <section style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     <label htmlFor="settings-plugin" style={labelStyle}>Active Agency</label>
-                    <p style={helpStyle}>Switches the dashboard to that agency's data view.</p>
+                    <p style={helpStyle}>Switches Buffi's context and data view to this agency.</p>
                     <select
                         id="settings-plugin"
                         style={selectStyle}
-                        value={activePlugin}
+                        value={activePlugin?.id || ''}
                         onChange={handlePluginChange}
                     >
-                        {tenantPlugins.length === 0 && (
-                            <option value="">No plugins assigned</option>
+                        {allPlugins.length === 0 && (
+                            <option value="">No agencies configured</option>
                         )}
-                        {tenantPlugins.map(({ id, name }) => (
-                            <option key={id} value={id}>{name}</option>
+                        {allPlugins.map((p) => (
+                            <option key={p.id} value={p.id}>
+                                {p.icon}  {p.name}{p.status === 'preview' ? ' (Preview)' : ''}
+                            </option>
                         ))}
                     </select>
+                    {activePlugin && (
+                        <div style={{
+                            display: 'flex', alignItems: 'center', gap: '6px',
+                            fontSize: '11px', color: activePlugin.color,
+                            fontWeight: 600,
+                        }}>
+                            <span style={{
+                                display: 'inline-block', width: 7, height: 7,
+                                borderRadius: '50%', background: activePlugin.color, flexShrink: 0,
+                            }} />
+                            {activePlugin.shortName} is active
+                            {activePlugin.status === 'preview' && (
+                                <span style={{
+                                    fontSize: '9px', fontWeight: 700,
+                                    textTransform: 'uppercase', letterSpacing: '0.06em',
+                                    color: '#888', background: '#2C2C2C',
+                                    padding: '1px 5px', borderRadius: '4px',
+                                }}>preview</span>
+                            )}
+                        </div>
+                    )}
                 </section>
 
                 {/* Section: AI Model */}

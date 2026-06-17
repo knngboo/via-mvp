@@ -9,6 +9,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import SettingsModal from './SettingsModal';
+import AgencySwitcher from './AgencySwitcher';
 import bfiIconDark from '../assets/images/BFI_LogoIcon_Dark.svg';
 
 // ── Avatar colour ─────────────────────────────────────────────────────────────
@@ -62,6 +63,9 @@ export default function GlobalNav() {
         <div className="gnav-brand">
           <img src={bfiIconDark} alt="BFI" className="gnav-logo" />
         </div>
+
+        {/* ── Agency switcher ── */}
+        <AgencySwitcher />
 
         {/* ── Unified nav tabs ── */}
         <nav className="gnav-nav" aria-label="Main navigation">
