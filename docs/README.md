@@ -16,7 +16,118 @@ A secure, containerized full-stack application built for **Better Futures Instit
 
 ---
 
-## Getting Started
+## PostgreSQL Database Schema
+
+The platform runs on **PostgreSQL 16** with two schemas: `public` (GTFS transit data) and `bfi` (platform data). The full DDL lives in [`backend/db/init.sql`](backend/db/init.sql).
+
+### Core Platform Tables (`public` schema)
+
+#### `users`
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | SERIAL | PRIMARY KEY | Auto-incrementing user ID |
+| `username` | VARCHAR(50) | UNIQUE, NOT NULL | Login username |
+| `password_hash` | VARCHAR(255) | NOT NULL | Bcrypt hashed password |
+| `user_role` | VARCHAR(20) | DEFAULT `'viewer'` | RBAC role: `admin`, `editor`, `analyzer`, `viewer` |
+| `tenant_schema` | VARCHAR(50) | DEFAULT `'bfi'` | Schema this user belongs to (multi-tenancy) |
+| `created_at` | TIMESTAMP | DEFAULT NOW() | Account creation timestamp |
+
+#### `chat_messages`
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | SERIAL | PRIMARY KEY | Auto-incrementing message ID |
+| `user_id` | INTEGER | REFERENCES users(id) | The owning user |
+| `sender_role` | VARCHAR(10) | NOT NULL | `user` or `bot` |
+| `content` | TEXT | NOT NULL | Message text |
+| `structured_data` | JSONB | | Structured payload (query results, etc.) |
+| `citations` | JSONB | | Sources cited by the bot |
+| `map_tag` | VARCHAR(100) | | Reference tag for map rendering |
+| `chart_tag` | VARCHAR(100) | | Reference tag for chart rendering |
+| `saved_chart_data` | JSONB | | Snapshot of chart data at message time |
+| `saved_highlight_data` | JSONB | | Snapshot of map highlight data at message time |
+| `created_at` | TIMESTAMP | DEFAULT NOW() | Message timestamp |
+
+#### `feedback`
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | SERIAL | PRIMARY KEY | Auto-incrementing feedback ID |
+| `user_id` | INTEGER | REFERENCES users(id) ON DELETE CASCADE | The reporting user |
+| `message_text` | TEXT | | Text of the flagged bot message |
+| `reported_at` | TIMESTAMP | DEFAULT NOW() | When feedback was submitted |
+
+#### `tenant_plugins`
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `tenant_schema` | VARCHAR(63) | PRIMARY KEY | The tenant's schema (e.g., `bfi`) |
+| `plugin_id` | VARCHAR(63) | PRIMARY KEY | Plugin identifier (e.g., `via`) |
+| `enabled_at` | TIMESTAMPTZ | NOT NULL, DEFAULT NOW() | When the plugin was enabled for this tenant |
+
+---
+
+### Data Hub Tables (`bfi` schema)
+
+#### `bfi.sources_meta`
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | SERIAL | PRIMARY KEY | Auto-incrementing source ID |
+| `user_id` | INTEGER | REFERENCES users(id) ON DELETE SET NULL | Uploader |
+| `name` | VARCHAR(255) | NOT NULL | Display name of the dataset |
+| `table_name` | VARCHAR(255) | UNIQUE, NOT NULL | Physical table name in the `bfi` schema |
+| `status` | VARCHAR(50) | DEFAULT `'Ready'` | Processing status |
+| `size` | BIGINT | | File size in bytes |
+| `num_rows` | INT | | Number of rows in the dataset |
+| `columns` | JSONB | | Column schema of the uploaded dataset |
+| `visibility` | VARCHAR(20) | DEFAULT `'Private'` | `Private` or `Shared` |
+| `uploaded_at` | TIMESTAMP | DEFAULT NOW() | Upload timestamp |
+
+---
+
+### GTFS Transit Tables (`public` schema)
+
+These tables are populated from the bundled VIA GTFS feed on startup via `import_gtfs.py`.
+
+#### `stops`
+| Column | Type | Description |
+| :--- | :--- | :--- |
+| `stop_id` | TEXT (PK) | Unique stop identifier |
+| `stop_name` | TEXT | Human-readable stop name |
+| `stop_lat` | DOUBLE PRECISION | GPS latitude |
+| `stop_lon` | DOUBLE PRECISION | GPS longitude |
+| `location_type` | INTEGER | GTFS location type (0 = stop, 1 = station) |
+| `wheelchair_boarding` | INTEGER | Accessibility indicator |
+
+#### `routes`
+| Column | Type | Description |
+| :--- | :--- | :--- |
+| `route_id` | TEXT (PK) | Unique route identifier |
+| `route_short_name` | TEXT | Short name (e.g., `"100"`) |
+| `route_long_name` | TEXT | Full route name (e.g., `"Primo"`) |
+| `route_type` | INTEGER | GTFS type (3 = bus) |
+
+#### `trips`
+| Column | Type | Description |
+| :--- | :--- | :--- |
+| `trip_id` | TEXT (PK) | Unique trip identifier |
+| `route_id` | TEXT | References `routes.route_id` |
+| `service_id` | TEXT | Service schedule identifier |
+| `trip_headsign` | TEXT | Destination sign shown to passengers |
+| `direction_id` | INTEGER | Direction of travel (0 or 1) |
+| `wheelchair_accessible` | INTEGER | Accessibility indicator |
+| `bikes_allowed` | INTEGER | Bike allowance indicator |
+
+#### `stop_times`
+| Column | Type | Description |
+| :--- | :--- | :--- |
+| `trip_id` | TEXT (PK) | References `trips.trip_id` |
+| `stop_sequence` | INTEGER (PK) | Order of this stop within the trip |
+| `arrival_time` | TEXT | Scheduled arrival time |
+| `departure_time` | TEXT | Scheduled departure time |
+| `stop_id` | TEXT | References `stops.stop_id` |
+| `pickup_type` | INTEGER | Pickup availability indicator |
+| `drop_off_type` | INTEGER | Drop-off availability indicator |
+| `timepoint` | INTEGER | Whether this is a strict timepoint (1) or approximate (0) |
+
+
 
 ### 1. Prerequisites
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running
@@ -24,26 +135,15 @@ A secure, containerized full-stack application built for **Better Futures Instit
 
 ### 2. Environment Configuration
 
-Create the file `backend/.env` before your first launch. This file is **gitignored** — never commit it.
+Copy the template file and you are ready to go:
 
-```env
-# OpenAI (required for AI chat features)
-OPENAI_API_KEY=sk-proj-your-openai-key-here
-
-# Admin registration secret — users need this to create accounts
-ADMIN_SECRET=MySuperSecretKey99!
-
-# JWT signing secret — change this to a long random string in production
-JWT_SECRET=your-secure-jwt-secret
-
-# PostgreSQL connection (matches docker-compose.yml)
-POSTGRES_HOST=postgres
-POSTGRES_USER=your-db-user
-POSTGRES_PASSWORD=your-db-password
-POSTGRES_DB=via_mvp
+```bash
+cp backend/.env.example backend/.env
 ```
 
-> See `backend/.env.example` for a blank template.
+The `.env.example` file contains working dev defaults for all required variables — no editing needed to run locally. The file is **gitignored** and must never be committed.
+
+> For production, replace `JWT_SECRET`, `ADMIN_SECRET`, and `OPENAI_API_KEY` with strong, unique values before deploying.
 
 ### 3. Launch the Platform
 
@@ -60,7 +160,7 @@ All three services start automatically. The backend waits for Postgres to be hea
 Navigate to `http://localhost:5173/register` and fill in:
 - **Username** — your email or chosen username
 - **Password** — minimum 8 characters
-- **Admin Secret** — the value of `ADMIN_SECRET` from your `.env`
+- **Admin Secret** — `dev_admin_secret_change_me` (the default from `.env.example`; change this in production)
 
 Then log in at `http://localhost:5173/login`.
 
@@ -176,7 +276,7 @@ The backend includes an integration smoke test suite (pytest):
 ```bash
 # Backend must be running first (docker compose up)
 # Run from toyr via-mvp/ root:
-ADMIN_SECRET=your-admin-secret python -m pytest backend/test/test_smoke.py -v
+ADMIN_SECRET=dev_admin_secret_change_me python -m pytest backend/tests/test_smoke.py -v
 ```
 
 Tests cover: registration guards, login + HttpOnly cookie, route protection, upload RBAC,
@@ -290,11 +390,11 @@ cat via_mvp_backup_YYYY-MM-DD.sql | docker exec -i via-mvp-postgres-1 psql -U yo
 
 ### 2. Conversation History Is Browser-Local Only
 
-**Current state:** Chat history is stored in `localStorage`, namespaced per user — different accounts cannot see each other's conversations. History persists across page refreshes within the same browser.
+**Current state:** Chat history is stored in `localStorage`, namespaced per user. The backend endpoints `GET/POST /api/chat/messages` exist and are wired to the `chat_messages` DB table.
 
-**Limitation:** Clearing browser data or switching devices loses all history.
+**Limitation:** Frontend fire-and-forget save to the backend is partially implemented. Clearing browser data or switching devices may still lose history depending on the branch.
 
-**Future fix:** Wire the existing `chat_messages` DB table to a `POST /api/chat/history` endpoint.
+**Next step:** Verify and complete the frontend save call in `FeedbackBubble.jsx` and the restore-on-mount in `ChatPage.jsx`.
 
 ---
 
@@ -324,4 +424,4 @@ A `docker compose down -v` permanently deletes all uploaded data. Manual `pg_dum
 
 ---
 
-*Last reviewed: 2026-06-15. Maintained by Better Futures Institute engineering team.*
+*Last reviewed: 2026-06-16. Maintained by Better Futures Institute engineering team.*

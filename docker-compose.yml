@@ -21,24 +21,19 @@ services:
       - ./backend:/app
     # Dev: auto-reload gunicorn when backend code changes (the volume mount above
     # makes host edits visible). Prevents stale-code surprises after editing .py files.
-    command: ["gunicorn", "--bind", "0.0.0.0:5001", "--worker-class", "gthread",
-              "--workers", "2", "--threads", "4", "--timeout", "360", "--reload", "app:app"]
-    # backend/.env is OPTIONAL: the defaults below let a freshly-cloned repo run
-    # out-of-the-box. If the file exists, it's still loaded (e.g. for OPENAI_API_KEY);
-    # the keys defined under `environment` below take precedence over it.
+    command: [ "gunicorn", "--bind", "0.0.0.0:5001", "--worker-class", "gthread", "--workers", "2", "--threads", "4", "--timeout", "360", "--reload", "app:app" ]
+    # Secrets come from backend/.env — copy backend/.env.example to backend/.env
+    # and fill in your values before running. See .env.example for instructions.
     env_file:
       - path: ./backend/.env
         required: false
     environment:
+      # Postgres credentials are safe to hardcode for local dev (never change these).
       - POSTGRES_USER=admin
       - POSTGRES_PASSWORD=admin
       - POSTGRES_DB=via_mvp
-      # Auth secrets — dev defaults so register/login work on a fresh clone.
-      # Override by exporting JWT_SECRET / ADMIN_SECRET before `docker compose up`.
-      - JWT_SECRET=${JWT_SECRET:-dev_jwt_secret_change_me_0123456789abcdef}
-      - ADMIN_SECRET=${ADMIN_SECRET:-dev_admin_secret_change_me}
-      # US Census ACS key baked in so the map heat-map works for anyone who clones
-      # the repo. Free key: https://api.census.gov/data/key_signup.html
+      # US Census ACS key — free public key, safe to share.
+      # Free signup: https://api.census.gov/data/key_signup.html
       - CENSUS_API_KEY=${CENSUS_API_KEY:-f805edcf2467e1a44d01133ce2018dae58f3b5cb}
     depends_on:
       postgres:

@@ -25,19 +25,22 @@ PHASE 2 — SECURITY AUDIT (STATUS UPDATED)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 🔴 CRITICAL-1: Live OpenAI API Key Committed to .env
-Status: ✅ FIXED (Phase B)
-The key was rotated. SettingsModal and x-openai-key header mechanism were
-removed entirely. The backend now uses only the server-side OPENAI_API_KEY from
-.env. No user-supplied key is accepted or transmitted in any request header.
-The API key is now server-side only and never sent to or stored by the frontend.
+Status: ✅ FIXED (Phase B) — ⚠️ DESIGN DECISION REVERSAL (2026-06-16)
+The key was rotated and the user-supplied key mechanism was initially removed.
+As of 2026-06-16, the team decided each user supplies their own OpenAI key
+via the Settings panel (sent as X-OpenAI-Key request header). The server-side
+key is now optional. This is a product decision, not a regression.
+Risk accepted: if a user's key is intercepted in transit, only their key is
+exposed. Mitigation: HTTPS is required before any external deployment.
 
 ────────────────────────────────────────────────────────────────────────────────
 
 🔴 CRITICAL-2: User-Supplied OpenAI API Key via x-openai-key Header
-Status: ✅ FIXED (Phase B / C-2)
-SettingsModal.jsx deleted. FeedbackBubble.jsx no longer reads buffi_api_key
-from localStorage or sends x-openai-key in any request header. The custom key
-passthrough in server.js is removed. All AI requests use the server-side key.
+Status: ✅ FIXED (Phase B) — ⚠️ DESIGN DECISION REVERSAL (2026-06-16)
+Mechanism was removed in Phase B but deliberately restored in the Scorpion/main
+merge. Users enter their own key in Settings; it is sent per-request as
+X-OpenAI-Key header. The server-side key is now a fallback only.
+This is an accepted design decision. The server never stores the user key.
 
 ────────────────────────────────────────────────────────────────────────────────
 
@@ -159,19 +162,25 @@ PHASE 7 — TESTING (STATUS UPDATED)
 
 Original finding: 0 test files. Score: 0/10.
 
-Status: ✅ PARTIAL FIX (Phase D)
-backend/tests/smoke.test.js added. Uses Node's built-in test runner (no deps).
-Covers:
-  - Register: missing admin secret (403), short password (400), success (201)
-  - Login: wrong password (401), success (200), HttpOnly cookie set, token NOT in body
-  - Route guard: unauthenticated /api/sources (401)
-  - Authenticated /api/sources: returns array (200)
-  - Upload RBAC: viewer role cannot upload (403)
-  - Feedback: unauthenticated (401), authenticated (201)
-  - Logout: cookie cleared in Set-Cookie header
+Status: ✅ UPDATED (Phase D + bfi-nightwing merge)
+backend/tests/test_smoke.py — Python pytest suite. Covers:
+  SmokeTest class:
+    - Register: missing admin secret (403), short password (400), success (201)
+    - Login: wrong password (401), success (200), HttpOnly cookie set
+    - Route guard: unauthenticated /api/sources (401)
+    - Authenticated /api/sources: returns array (200)
+    - Upload RBAC: viewer role cannot upload (403)
+    - Feedback: unauthenticated (401), authenticated (201)
+    - Logout: cookie cleared
+  RBACTest class:
+    - 4-role system: admin, editor, analyzer, viewer
+    - All permission boundaries tested (chat access, upload access, admin endpoints)
+    - Role demotion via /api/admin/users/<id>/role verified end-to-end
 
-Still missing: unit tests, E2E tests, malicious column name upload test,
-OpenAI mock tests, SSE mid-stream drop test.
+⚠️ CI pipeline (ci.yml) still runs npm install + npm test on the Python backend.
+   Every push to main shows a red X. Fix: update ci.yml to use pip + pytest.
+
+Still missing: unit tests, E2E tests, malicious column name upload test, SSE drop test.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 PHASE 9 — DEVOPS & DEPLOYMENT (STATUS UPDATED)
@@ -206,7 +215,8 @@ PHASE 6 — DEAD CODE (STATUS UPDATED)
 
 Phase A deleted 30+ dead files. Summary of remaining known dead items:
 
-  chat_messages table (init.sql): scaffolded, no backend endpoint reads/writes it.
+  chat_messages table (init.sql): ✅ endpoints wired — GET/POST /api/chat/messages
+    in app.py. Frontend fire-and-forget save is partially implemented.
   datasets table (init.sql): unused. Created in schema, never populated.
   axios (frontend/package.json): not imported anywhere. Dead dependency.
   md5 (frontend/package.json): not imported anywhere. Dead dependency.
@@ -261,4 +271,4 @@ Findings not addressed because they are architectural (out of MVP scope):
   - Redis queue for AI requests at scale
   - Linear regression forecasting accuracy disclaimer
 
-Last reviewed: 2026-06-14. Maintained by Better Futures Institute engineering team.
+Last reviewed: 2026-06-16. Maintained by Better Futures Institute engineering team.
