@@ -16,7 +16,118 @@ A secure, containerized full-stack application built for **Better Futures Instit
 
 ---
 
-## Getting Started
+## PostgreSQL Database Schema
+
+The platform runs on **PostgreSQL 16** with two schemas: `public` (GTFS transit data) and `bfi` (platform data). The full DDL lives in [`backend/db/init.sql`](backend/db/init.sql).
+
+### Core Platform Tables (`public` schema)
+
+#### `users`
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | SERIAL | PRIMARY KEY | Auto-incrementing user ID |
+| `username` | VARCHAR(50) | UNIQUE, NOT NULL | Login username |
+| `password_hash` | VARCHAR(255) | NOT NULL | Bcrypt hashed password |
+| `user_role` | VARCHAR(20) | DEFAULT `'viewer'` | RBAC role: `admin`, `editor`, `analyzer`, `viewer` |
+| `tenant_schema` | VARCHAR(50) | DEFAULT `'bfi'` | Schema this user belongs to (multi-tenancy) |
+| `created_at` | TIMESTAMP | DEFAULT NOW() | Account creation timestamp |
+
+#### `chat_messages`
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | SERIAL | PRIMARY KEY | Auto-incrementing message ID |
+| `user_id` | INTEGER | REFERENCES users(id) | The owning user |
+| `sender_role` | VARCHAR(10) | NOT NULL | `user` or `bot` |
+| `content` | TEXT | NOT NULL | Message text |
+| `structured_data` | JSONB | | Structured payload (query results, etc.) |
+| `citations` | JSONB | | Sources cited by the bot |
+| `map_tag` | VARCHAR(100) | | Reference tag for map rendering |
+| `chart_tag` | VARCHAR(100) | | Reference tag for chart rendering |
+| `saved_chart_data` | JSONB | | Snapshot of chart data at message time |
+| `saved_highlight_data` | JSONB | | Snapshot of map highlight data at message time |
+| `created_at` | TIMESTAMP | DEFAULT NOW() | Message timestamp |
+
+#### `feedback`
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | SERIAL | PRIMARY KEY | Auto-incrementing feedback ID |
+| `user_id` | INTEGER | REFERENCES users(id) ON DELETE CASCADE | The reporting user |
+| `message_text` | TEXT | | Text of the flagged bot message |
+| `reported_at` | TIMESTAMP | DEFAULT NOW() | When feedback was submitted |
+
+#### `tenant_plugins`
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `tenant_schema` | VARCHAR(63) | PRIMARY KEY | The tenant's schema (e.g., `bfi`) |
+| `plugin_id` | VARCHAR(63) | PRIMARY KEY | Plugin identifier (e.g., `via`) |
+| `enabled_at` | TIMESTAMPTZ | NOT NULL, DEFAULT NOW() | When the plugin was enabled for this tenant |
+
+---
+
+### Data Hub Tables (`bfi` schema)
+
+#### `bfi.sources_meta`
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | SERIAL | PRIMARY KEY | Auto-incrementing source ID |
+| `user_id` | INTEGER | REFERENCES users(id) ON DELETE SET NULL | Uploader |
+| `name` | VARCHAR(255) | NOT NULL | Display name of the dataset |
+| `table_name` | VARCHAR(255) | UNIQUE, NOT NULL | Physical table name in the `bfi` schema |
+| `status` | VARCHAR(50) | DEFAULT `'Ready'` | Processing status |
+| `size` | BIGINT | | File size in bytes |
+| `num_rows` | INT | | Number of rows in the dataset |
+| `columns` | JSONB | | Column schema of the uploaded dataset |
+| `visibility` | VARCHAR(20) | DEFAULT `'Private'` | `Private` or `Shared` |
+| `uploaded_at` | TIMESTAMP | DEFAULT NOW() | Upload timestamp |
+
+---
+
+### GTFS Transit Tables (`public` schema)
+
+These tables are populated from the bundled VIA GTFS feed on startup via `import_gtfs.py`.
+
+#### `stops`
+| Column | Type | Description |
+| :--- | :--- | :--- |
+| `stop_id` | TEXT (PK) | Unique stop identifier |
+| `stop_name` | TEXT | Human-readable stop name |
+| `stop_lat` | DOUBLE PRECISION | GPS latitude |
+| `stop_lon` | DOUBLE PRECISION | GPS longitude |
+| `location_type` | INTEGER | GTFS location type (0 = stop, 1 = station) |
+| `wheelchair_boarding` | INTEGER | Accessibility indicator |
+
+#### `routes`
+| Column | Type | Description |
+| :--- | :--- | :--- |
+| `route_id` | TEXT (PK) | Unique route identifier |
+| `route_short_name` | TEXT | Short name (e.g., `"100"`) |
+| `route_long_name` | TEXT | Full route name (e.g., `"Primo"`) |
+| `route_type` | INTEGER | GTFS type (3 = bus) |
+
+#### `trips`
+| Column | Type | Description |
+| :--- | :--- | :--- |
+| `trip_id` | TEXT (PK) | Unique trip identifier |
+| `route_id` | TEXT | References `routes.route_id` |
+| `service_id` | TEXT | Service schedule identifier |
+| `trip_headsign` | TEXT | Destination sign shown to passengers |
+| `direction_id` | INTEGER | Direction of travel (0 or 1) |
+| `wheelchair_accessible` | INTEGER | Accessibility indicator |
+| `bikes_allowed` | INTEGER | Bike allowance indicator |
+
+#### `stop_times`
+| Column | Type | Description |
+| :--- | :--- | :--- |
+| `trip_id` | TEXT (PK) | References `trips.trip_id` |
+| `stop_sequence` | INTEGER (PK) | Order of this stop within the trip |
+| `arrival_time` | TEXT | Scheduled arrival time |
+| `departure_time` | TEXT | Scheduled departure time |
+| `stop_id` | TEXT | References `stops.stop_id` |
+| `pickup_type` | INTEGER | Pickup availability indicator |
+| `drop_off_type` | INTEGER | Drop-off availability indicator |
+| `timepoint` | INTEGER | Whether this is a strict timepoint (1) or approximate (0) |
+
+
 
 ### 1. Prerequisites
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running
