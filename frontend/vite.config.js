@@ -7,7 +7,7 @@ export default defineConfig({
     server: {
         port: 5173,
         host: true,
-        allowedHosts: ['docker-desktop.tail72d9a0.ts.net'],
+        allowedHosts: ['docker-desktop.tail72d9a0.ts.net', 'https://instance-20260617-162241.tail72d9a0.ts.net/'],
         watch: {
             usePolling: true,
         },
