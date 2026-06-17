@@ -33,10 +33,10 @@ def create_stats_blueprint():
     @bp.route("/", methods=["GET"])
     def summary():
         try:
-            routes = _safe_count("routes")
-            stops = _safe_count("stops")
-            trips = _safe_count("trips")
-            stop_times = _safe_count("stop_times")
+            routes = _safe_count("routes", "via")
+            stops = _safe_count("stops", "via")
+            trips = _safe_count("trips", "via")
+            stop_times = _safe_count("stop_times", "via")
             sources = _safe_count("sources_meta", "bfi")
             return jsonify({
                 "routes": routes,
@@ -56,7 +56,7 @@ def create_stats_blueprint():
     def trips_per_route():
         try:
             exists = db.query(
-                "SELECT 1 FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = 'routes'"
+                "SELECT 1 FROM pg_catalog.pg_tables WHERE schemaname = 'via' AND tablename = 'routes'"
             )
             if not exists:
                 return jsonify([])
@@ -73,8 +73,8 @@ def create_stats_blueprint():
                     r.route_short_name,
                     r.route_long_name,
                     COUNT(t.trip_id)::int AS trips
-                FROM routes r
-                JOIN trips t ON r.route_id = t.route_id
+                FROM via.routes r
+                JOIN via.trips t ON r.route_id = t.route_id
                 GROUP BY r.route_id, r.route_short_name, r.route_long_name
                 ORDER BY trips DESC
                 LIMIT %s;
@@ -91,7 +91,7 @@ def create_stats_blueprint():
     def departures_by_hour():
         try:
             exists = db.query(
-                "SELECT 1 FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = 'stop_times'"
+                "SELECT 1 FROM pg_catalog.pg_tables WHERE schemaname = 'via' AND tablename = 'stop_times'"
             )
             if not exists:
                 return jsonify([])
@@ -101,7 +101,7 @@ def create_stats_blueprint():
                 SELECT
                     (CAST(SPLIT_PART(departure_time, ':', 1) AS INTEGER) % 24) AS hour,
                     COUNT(*)::int AS departures
-                FROM stop_times
+                FROM via.stop_times
                 WHERE departure_time IS NOT NULL AND departure_time != ''
                 GROUP BY hour
                 ORDER BY hour ASC;

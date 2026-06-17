@@ -35,11 +35,24 @@ const EditorRoute = ({ children }) => {
 };
 
 // Admin, editor, or analyzer → viewers redirected to /dashboard (not /chat — avoids infinite loop)
+// areafoundation viewers are redirected to /chat since they have no dashboard
 const AnalyzerRoute = ({ children }) => {
     const context = useContext(AuthContext);
     if (!context) return <Navigate to="/login" />;
     if (!context.user) return <Navigate to="/login" />;
-    if (!['admin', 'analyzer', 'editor'].includes(context.user?.role)) return <Navigate to="/dashboard" replace />;
+    const tenant = context.user?.tenant;
+    if (!['admin', 'analyzer', 'editor'].includes(context.user?.role)) {
+        return <Navigate to={tenant === 'areafoundation' ? '/chat' : '/dashboard'} replace />;
+    }
+    return children;
+};
+
+// Dashboard restricted to BFI and VIA tenants only
+const DashboardRoute = ({ children }) => {
+    const context = useContext(AuthContext);
+    if (!context) return <Navigate to="/login" />;
+    if (!context.user) return <Navigate to="/login" />;
+    if (context.user?.tenant === 'areafoundation') return <Navigate to="/chat" replace />;
     return children;
 };
 
@@ -60,7 +73,7 @@ const App = () => {
                     <Route path="/login"     element={<Login />} />
                     <Route path="/register"  element={<Register />} />
                     <Route path="/chat"      element={<AnalyzerRoute><ChatPage /></AnalyzerRoute>} />
-                    <Route path="/dashboard" element={<ProtectedRoute><PluginDashboardPage /></ProtectedRoute>} />
+                    <Route path="/dashboard" element={<DashboardRoute><PluginDashboardPage /></DashboardRoute>} />
                     {/* Upload restricted to editors and admins */}
                     <Route path="/sources"   element={<EditorRoute><UploadPage /></EditorRoute>} />
                     {/* Admin panel for managing users */}
@@ -73,5 +86,5 @@ const App = () => {
         </CsvProvider>
     );
 };
-export { ProtectedRoute, AdminRoute, EditorRoute, AnalyzerRoute, ViewerRoute };
+export { ProtectedRoute, AdminRoute, EditorRoute, AnalyzerRoute, ViewerRoute, DashboardRoute };
 export default App;

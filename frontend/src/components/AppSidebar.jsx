@@ -4,6 +4,8 @@ import { useAuth, userKey } from '../context/AuthContext';
 import { getActivePlugin } from 'Plugins';
 import SettingsModal from './SettingsModal';
 import bfiIconDark from '../assets/images/BFI_LogoIcon_Dark.svg';
+import viaLogo from '../assets/images/Via.png';
+import afLogo from '../assets/images/OIP.webp';
 import sidebarCloseIcon from '../assets/images/Sidebar_close.svg';
 import iconChat from '../assets/images/Icons=Chat.svg';
 import iconSearch from '../assets/images/Icons=Search.svg';
@@ -134,6 +136,12 @@ export default function AppSidebar() {
     setRenamingId(null);
   };
 
+  const TENANT_LOGOS = {
+    via: { src: viaLogo, alt: 'VIA Metropolitan Transit' },
+    areafoundation: { src: afLogo, alt: 'San Antonio Area Foundation' },
+  };
+  const tenantLogo = TENANT_LOGOS[user?.tenant];
+
   const isChat = pathname === '/chat';
   const isSources = pathname === '/sources';
   const isDashboard = pathname === '/dashboard';
@@ -215,7 +223,14 @@ export default function AppSidebar() {
     <div className={`col-sidebar${expanded ? ' col-sidebar--expanded' : ''}`}>
       <div className="col-header col-header--sidebar">
         <span className="top-bar-logo-btn" aria-hidden="true">
-          <img src={bfiIconDark} alt="Buffi" className="top-bar-logo" />
+          {tenantLogo ? (
+            <span className="top-bar-tenant-logo-wrap">
+              <img src={tenantLogo.src} alt={tenantLogo.alt} className="top-bar-tenant-logo" />
+              <span className="top-bar-powered-by">Powered by BFI</span>
+            </span>
+          ) : (
+            <img src={bfiIconDark} alt="Buffi" className="top-bar-logo" />
+          )}
         </span>
       </div>
       <div className={`left-icon-strip${expanded ? ' left-icon-strip--expanded' : ''}`}>
@@ -246,19 +261,21 @@ export default function AppSidebar() {
           <img src={iconChat} alt="" className="strip-icon" />
           {expanded && <span className="strip-label">New Chat</span>}
         </button>
-        <button
-          className={`icon-strip-btn${isDashboard ? ' icon-strip-btn--active' : ''}`}
-          title="Dashboard"
-          onClick={() => navigate('/dashboard')}
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="strip-icon">
-            <rect x="3" y="3" width="7" height="9" rx="1" />
-            <rect x="14" y="3" width="7" height="5" rx="1" />
-            <rect x="14" y="12" width="7" height="9" rx="1" />
-            <rect x="3" y="16" width="7" height="5" rx="1" />
-          </svg>
-          {expanded && <span className="strip-label">Dashboard</span>}
-        </button>
+        {user?.tenant !== 'areafoundation' && (
+          <button
+            className={`icon-strip-btn${isDashboard ? ' icon-strip-btn--active' : ''}`}
+            title="Dashboard"
+            onClick={() => navigate('/dashboard')}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="strip-icon">
+              <rect x="3" y="3" width="7" height="9" rx="1" />
+              <rect x="14" y="3" width="7" height="5" rx="1" />
+              <rect x="14" y="12" width="7" height="9" rx="1" />
+              <rect x="3" y="16" width="7" height="5" rx="1" />
+            </svg>
+            {expanded && <span className="strip-label">Dashboard</span>}
+          </button>
+        )}
         {['admin', 'editor'].includes(user?.role) && (
           <button
             className={`icon-strip-btn${isSources ? ' icon-strip-btn--active' : ''}`}

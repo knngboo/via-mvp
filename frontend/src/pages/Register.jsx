@@ -13,6 +13,7 @@ const Register = () => {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [adminSecret, setAdminSecret] = useState('');
+    const [organization, setOrganization] = useState('bfi');
     const [error, setError] = useState('');
     const [successMsg, setSuccessMsg] = useState('');
     const [isLoading, setIsLoading] = useState(false);
@@ -25,12 +26,13 @@ const Register = () => {
         setIsLoading(true);
 
         try {
-            await apiService.register(username, password, adminSecret);
+            await apiService.register(username, password, adminSecret, organization);
             setSuccessMsg('Registration successful! You can now log in.');
             // Automatically clear fields so they can go to login
             setUsername('');
             setPassword('');
             setAdminSecret('');
+            setOrganization('bfi');
         } catch (err) {
             setError(err.message);
         } finally {
@@ -131,6 +133,22 @@ const Register = () => {
                                     style={{ width: '100%', padding: '14px', borderRadius: 'var(--radius-pill)', border: '1px solid var(--grey-200)', backgroundColor: 'var(--grey-50)', outline: 'none', fontSize: '14px', boxSizing: 'border-box' }}
                                     required
                                 />
+                            </div>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                <label htmlFor="reg-org" style={{ fontSize: '13px', fontWeight: '500', color: 'var(--grey-700)' }}>
+                                    Organization
+                                </label>
+                                <select
+                                    id="reg-org"
+                                    value={organization}
+                                    onChange={(e) => setOrganization(e.target.value)}
+                                    style={{ width: '100%', padding: '14px', borderRadius: 'var(--radius-pill)', border: '1px solid var(--grey-200)', backgroundColor: 'var(--grey-50)', outline: 'none', fontSize: '14px', boxSizing: 'border-box' }}
+                                >
+                                    <option value="bfi">BFI — Better Futures Institute</option>
+                                    <option value="via">VIA Metropolitan Transit</option>
+                                    <option value="areafoundation">San Antonio Area Foundation</option>
+                                </select>
                             </div>
 
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>

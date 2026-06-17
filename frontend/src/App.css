@@ -1367,6 +1367,29 @@
   opacity: 0.75;
 }
 
+/* ── Tenant logo swap in sidebar header ── */
+.top-bar-tenant-logo-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.top-bar-tenant-logo {
+  width: 40px;
+  height: 28px;
+  object-fit: contain;
+}
+
+.top-bar-powered-by {
+  font-size: 8px;
+  font-weight: 500;
+  color: var(--grey-500, #6b7280);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  line-height: 1;
+}
+
 /* ── Sidebar Close Button ── */
 .sidebar-close-btn {
   background: none;

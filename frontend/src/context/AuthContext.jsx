@@ -32,7 +32,7 @@ export const AuthProvider = ({ children }) => {
                     const data = await r.json();
                     if (data?.username) {
                         localStorage.setItem('buffi_current_user', data.username);
-                        setUser({ username: data.username, role: data.role });
+                        setUser({ username: data.username, role: data.role, tenant: data.tenant || 'bfi' });
                     }
                 }
                 setLoading(false);
@@ -52,9 +52,9 @@ export const AuthProvider = ({ children }) => {
 
     // Called by Login after successful POST /api/login.
     // Namespaces chat history by username — different users get separate history.
-    const login = (username, role) => {
+    const login = (username, role, tenant) => {
         localStorage.setItem('buffi_current_user', username);
-        setUser({ username, role });
+        setUser({ username, role, tenant: tenant || 'bfi' });
     };
 
     // Called on explicit logout. Clears session cookie via backend.

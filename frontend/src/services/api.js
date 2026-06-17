@@ -33,7 +33,7 @@ class ApiService {
   }
 
   // Register a new user
-  async register(username, password, adminSecret) {
+  async register(username, password, adminSecret, organization = 'bfi') {
     try {
       const response = await fetch(`${this.baseURL}/register`, {
         method: 'POST',
@@ -42,7 +42,7 @@ class ApiService {
           'Content-Type': 'application/json',
           'x-admin-secret': adminSecret,
         },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, organization }),
       });
 
       const rawText = await response.text();

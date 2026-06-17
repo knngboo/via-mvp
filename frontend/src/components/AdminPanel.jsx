@@ -9,12 +9,31 @@ const ROLE_DESCRIPTIONS = {
     viewer: 'Read-only access to shared data',
 };
 
+const TENANT_LABELS = {
+    bfi: 'BFI',
+    via: 'VIA',
+    areafoundation: 'Area Foundation',
+};
+
+const ALL_TENANT_OPTIONS = [
+    { value: 'bfi',            label: 'BFI' },
+    { value: 'via',            label: 'VIA' },
+    { value: 'areafoundation', label: 'Area Foundation' },
+];
+
 export default function AdminPanel() {
     const { user: currentUser } = useAuth();
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [updatingUserId, setUpdatingUserId] = useState(null);
+    const [updatingTenantUserId, setUpdatingTenantUserId] = useState(null);
+    const [deletingUserId, setDeletingUserId] = useState(null);
+
+    // BFI admins can assign any tenant; others can only assign their own.
+    const allowedTenants = currentUser?.tenant === 'bfi'
+        ? ALL_TENANT_OPTIONS
+        : ALL_TENANT_OPTIONS.filter(t => t.value === currentUser?.tenant);
 
     useEffect(() => { fetchUsers(); }, []);
 
@@ -41,14 +60,58 @@ export default function AdminPanel() {
                 body: JSON.stringify({ role: newRole }),
                 credentials: 'include',
             });
-            if (!res.ok) throw new Error('Failed to update role');
+            if (!res.ok) {
+                const body = await res.json().catch(() => ({}));
+                throw new Error(body.error || 'Failed to update role');
+            }
             const updated = await res.json();
-            // Functional update — avoids stale closure
             setUsers(prev => prev.map(u => u.id === userId ? { ...u, user_role: updated.user_role } : u));
         } catch (err) {
             setError(err.message);
         } finally {
             setUpdatingUserId(null);
+        }
+    };
+
+    const updateUserTenant = async (userId, newTenant) => {
+        try {
+            setUpdatingTenantUserId(userId);
+            const res = await fetch(`/api/admin/users/${userId}/tenant`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tenant_schema: newTenant }),
+                credentials: 'include',
+            });
+            if (!res.ok) {
+                const body = await res.json().catch(() => ({}));
+                throw new Error(body.error || 'Failed to update organization');
+            }
+            const updated = await res.json();
+            setUsers(prev => prev.map(u => u.id === userId ? { ...u, tenant_schema: updated.tenant_schema } : u));
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setUpdatingTenantUserId(null);
+        }
+    };
+
+    const deleteUser = async (userId, username) => {
+        if (!window.confirm(`Delete user "${username}"? This cannot be undone.`)) return;
+        try {
+            setDeletingUserId(userId);
+            const res = await fetch(`/api/admin/users/${userId}`, {
+                method: 'DELETE',
+                credentials: 'include',
+            });
+            if (!res.ok) {
+                const body = await res.json().catch(() => ({}));
+                throw new Error(body.error || 'Failed to delete user');
+            }
+            setUsers(prev => prev.filter(u => u.id !== userId));
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setDeletingUserId(null);
         }
     };
 
@@ -62,7 +125,10 @@ export default function AdminPanel() {
                 <thead>
                     <tr>
                         <th>Username</th>
+                        <th>Organization</th>
                         <th>Current Role</th>
+                        <th>Change Role</th>
+                        <th>Change Org</th>
                         <th>Actions</th>
                         <th>Created</th>
                     </tr>
@@ -70,11 +136,17 @@ export default function AdminPanel() {
                 <tbody>
                     {users.map(user => {
                         const isSelf = user.username === currentUser?.username;
+                        const tenantKey = user.tenant_schema || 'bfi';
                         return (
                             <tr key={user.id} className={`admin-user-row${isSelf ? ' admin-self-row' : ''}`}>
                                 <td className="admin-username">
                                     {user.username}
                                     {isSelf && <span className="admin-self-badge"> (you)</span>}
+                                </td>
+                                <td className="admin-tenant">
+                                    <span className={`tenant-badge tenant-${tenantKey}`}>
+                                        {TENANT_LABELS[tenantKey] || tenantKey}
+                                    </span>
                                 </td>
                                 <td className="admin-role">
                                     <span className={`role-badge role-${user.user_role}`}>
@@ -94,6 +166,31 @@ export default function AdminPanel() {
                                         <option value="analyzer">Analyzer</option>
                                         <option value="viewer">Viewer</option>
                                     </select>
+                                </td>
+                                <td className="admin-actions">
+                                    <select
+                                        value={tenantKey}
+                                        onChange={(e) => updateUserTenant(user.id, e.target.value)}
+                                        disabled={updatingTenantUserId === user.id || isSelf}
+                                        className="admin-role-select"
+                                        title={isSelf ? 'You cannot change your own organization' : undefined}
+                                    >
+                                        {allowedTenants.map(t => (
+                                            <option key={t.value} value={t.value}>{t.label}</option>
+                                        ))}
+                                    </select>
+                                </td>
+                                <td className="admin-actions">
+                                    {!isSelf && (
+                                        <button
+                                            onClick={() => deleteUser(user.id, user.username)}
+                                            disabled={deletingUserId === user.id}
+                                            className="admin-delete-btn"
+                                            title="Delete user"
+                                        >
+                                            {deletingUserId === user.id ? 'Deleting…' : 'Delete'}
+                                        </button>
+                                    )}
                                 </td>
                                 <td className="admin-created">
                                     {new Date(user.created_at).toLocaleDateString()}

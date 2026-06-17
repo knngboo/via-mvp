@@ -18,6 +18,7 @@ import db
 
 GTFS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "google_transit")
 BATCH_SIZE = 5000
+GTFS_SCHEMA = "via"
 
 # Arbitrary key for a Postgres advisory lock that serialises the import across
 # gunicorn workers/processes so a first-login race can't double-import.
@@ -27,8 +28,9 @@ GTFS_LOCK_KEY = 778899
 # so the import is self-contained even on a pre-existing database volume that
 # predates these tables.
 TABLE_DDL = [
+    "CREATE SCHEMA IF NOT EXISTS via;",
     """
-    CREATE TABLE IF NOT EXISTS stops (
+    CREATE TABLE IF NOT EXISTS via.stops (
         stop_id              TEXT PRIMARY KEY,
         stop_name            TEXT,
         stop_lat             DOUBLE PRECISION,
@@ -38,7 +40,7 @@ TABLE_DDL = [
     );
     """,
     """
-    CREATE TABLE IF NOT EXISTS routes (
+    CREATE TABLE IF NOT EXISTS via.routes (
         route_id          TEXT PRIMARY KEY,
         route_short_name  TEXT,
         route_long_name   TEXT,
@@ -46,7 +48,7 @@ TABLE_DDL = [
     );
     """,
     """
-    CREATE TABLE IF NOT EXISTS trips (
+    CREATE TABLE IF NOT EXISTS via.trips (
         trip_id                TEXT PRIMARY KEY,
         route_id               TEXT,
         service_id             TEXT,
@@ -57,7 +59,7 @@ TABLE_DDL = [
     );
     """,
     """
-    CREATE TABLE IF NOT EXISTS stop_times (
+    CREATE TABLE IF NOT EXISTS via.stop_times (
         trip_id         TEXT,
         arrival_time    TEXT,
         departure_time  TEXT,
@@ -69,8 +71,8 @@ TABLE_DDL = [
         PRIMARY KEY (trip_id, stop_sequence)
     );
     """,
-    "CREATE INDEX IF NOT EXISTS idx_trips_route_id ON trips(route_id);",
-    "CREATE INDEX IF NOT EXISTS idx_stop_times_stop_id ON stop_times(stop_id);",
+    "CREATE INDEX IF NOT EXISTS idx_via_trips_route_id ON via.trips(route_id);",
+    "CREATE INDEX IF NOT EXISTS idx_via_stop_times_stop_id ON via.stop_times(stop_id);",
 ]
 
 # We only import the 4 tables we actually query to keep it fast and clean
@@ -116,12 +118,12 @@ def _cast_row(row, spec):
 
 
 def _import_file(cur, file_name, spec):
-    cur.execute("TRUNCATE TABLE {} CASCADE;".format(spec["table"]))
+    cur.execute("TRUNCATE TABLE {}.{} CASCADE;".format(GTFS_SCHEMA, spec["table"]))
 
     columns = spec["columns"]
     col_list = ", ".join(columns)
-    insert_sql = "INSERT INTO {} ({}) VALUES %s ON CONFLICT DO NOTHING;".format(
-        spec["table"], col_list
+    insert_sql = "INSERT INTO {}.{} ({}) VALUES %s ON CONFLICT DO NOTHING;".format(
+        GTFS_SCHEMA, spec["table"], col_list
     )
 
     path = os.path.join(GTFS_DIR, file_name)
@@ -156,6 +158,17 @@ def _ensure_tables(cur):
         cur.execute(stmt)
 
 
+def _drop_legacy_public_gtfs(cur):
+    """One-time migration: remove old GTFS tables from public schema if they still exist.
+
+    These were previously in public (visible to all tenants). They now live in
+    the via schema so Area Foundation users cannot access them.
+    Drop order respects FK dependencies: stop_times → trips/stops → routes.
+    """
+    for table in ("stop_times", "trips", "stops", "routes"):
+        cur.execute("DROP TABLE IF EXISTS public.{} CASCADE;".format(table))
+
+
 def ensure_database_loaded():
     """
     Idempotently load the bundled GTFS feed into Postgres.
@@ -173,8 +186,9 @@ def ensure_database_loaded():
                 return
 
             _ensure_tables(cur)
+            _drop_legacy_public_gtfs(cur)
 
-            cur.execute("SELECT count(*) AS n FROM stops")
+            cur.execute("SELECT count(*) AS n FROM via.stops")
             if int(cur.fetchone()["n"]) > 0:
                 return  # already loaded — nothing to do
 

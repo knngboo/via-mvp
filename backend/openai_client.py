@@ -39,11 +39,30 @@ class MaxToolRoundsError(Exception):
 
 
 # ---------------------------------------------------------------------------
+# Tenant schema resolver
+# ---------------------------------------------------------------------------
+def _tenant_schemas(tenant):
+    """
+    Return the ordered list of Postgres schemas this tenant can query.
+    BFI is the superadmin org and receives access to the via schema so it can
+    see the GTFS transit data that lives there. Area Foundation only sees its
+    own uploads — no GTFS access.
+    """
+    if tenant == "bfi":
+        return ["public", "via", "bfi"]
+    if tenant == "via":
+        return ["public", "via"]
+    if tenant == "areafoundation":
+        return ["public", "areafoundation"]
+    raise RuntimeError("Unknown tenant: {}".format(tenant))
+
+
+# ---------------------------------------------------------------------------
 # Schema context builder
 # ---------------------------------------------------------------------------
 def build_schema_context(tenant):
     try:
-        schemas_to_show = [s for s in ["public", tenant] if s]
+        schemas_to_show = _tenant_schemas(tenant)
 
         tables = db.query(
             """
@@ -54,6 +73,8 @@ def build_schema_context(tenant):
               AND table_name NOT IN ('schema_migrations', 'sources_meta',
                                      'users', 'chat_messages', 'feedback',
                                      'tenant_plugins')
+              AND NOT (table_schema = 'public'
+                       AND table_name IN ('stops', 'routes', 'trips', 'stop_times'))
             ORDER BY table_schema, table_name;
             """,
             (schemas_to_show,),
@@ -100,7 +121,7 @@ def build_schema_context(tenant):
             )
 
         lines = [
-            "DATABASE SCHEMA (use fully-qualified names in SQL, e.g. public.stops or bfi.my_upload):"
+            "DATABASE SCHEMA (use fully-qualified names in SQL, e.g. via.stops or bfi.my_upload):"
         ]
         for t in non_empty:
             key = "{}.{}".format(t["table_schema"], t["table_name"])
@@ -111,39 +132,22 @@ def build_schema_context(tenant):
 
 
 # ---------------------------------------------------------------------------
-# System prompt (static part — schema appended dynamically per request)
+# Per-tenant system prompts
 # ---------------------------------------------------------------------------
-SYSTEM_PROMPT_BASE = """You are Buffi, an AI data assistant for BFI's transit analytics platform.
-
-You answer questions about transit data and any data the agency has uploaded.
-
-TOOLS AVAILABLE:
-- run_query  → Write and run any read-only SQL SELECT against the database. Use this for nearly all data questions.
-- predict_route_ridership → Forecast future ridership using linear regression on historical data.
-- make_chart → Build a bar, pie, or radar chart from a SQL query. Use this whenever the answer is best shown as a graph (rankings, distributions, counts, comparisons, trends).
-- plot_on_map → Plot geographic points on the San Antonio map. Give it a SELECT that returns latitude and longitude columns (e.g. stop_lat/stop_lon from public.stops). Use this whenever the user asks to see, show, map, or locate things geographically.
-- show_live_buses → Plot VIA's live vehicle positions (real-time GTFS feed) on the map. Use when the user asks where buses are right now, live locations, or vehicle tracking.
-- show_heatmap → Display a US Census ACS demographic heat map of San Antonio ZIP codes (population, median income, poverty rate, etc.). Use when the user asks to see demographics, income, poverty, home values, or other census statistics geographically.
-- get_service_alerts → Read VIA's current real-time service alerts (detours, delays). Use when the user asks about alerts, disruptions, or service changes.
-- get_trip_updates → Read VIA's real-time trip updates (per-trip arrival/departure delays). Use when the user asks how late/on-time buses are, delays, or schedule adherence.
-
+_PROMPT_SHARED_RULES = """
 ANALYTICS & CHARTS:
 - When the user asks to analyze, compare, rank, break down, or chart data, call make_chart with a SELECT that returns one label column (x) and one numeric column (y).
 - Choose chart_type: 'bar' for rankings/counts/comparisons, 'pie' for share-of-total, 'radar' for multi-metric profiles. Default to 'bar'.
 - Keep charts to ~15 rows max (use ORDER BY ... LIMIT). Always also explain the insight in your text answer.
 
 MAPPING:
-- When a question is geographic ("where", "show me on a map", "locations of", "nearest"), prefer plot_on_map or show_live_buses so the user gets a visual.
-- plot_on_map SQL MUST return latitude/longitude (stops have stop_lat/stop_lon). Include a name column when possible (e.g. stop_name) and keep results under ~500 rows.
+- When a question is geographic ("where", "show me on a map", "locations of", "nearest"), prefer plot_on_map so the user gets a visual.
+- plot_on_map SQL MUST return latitude/longitude columns. Include a name column when possible and keep results under ~500 rows.
 
 HOW TO USE run_query:
 - Write valid PostgreSQL SELECT statements only.
-- Use fully-qualified table names from the schema provided below (e.g. public.stops, bfi.my_upload).
+- Use fully-qualified table names from the schema shown below.
 - You may JOIN across tables freely.
-- For "busiest stops": SELECT stop_id, stop_name, COUNT(*) FROM public.stop_times JOIN public.stops USING(stop_id) GROUP BY stop_id, stop_name ORDER BY COUNT(*) DESC LIMIT 10
-- For "busiest routes": JOIN public.trips and public.routes, GROUP BY route_id, ORDER BY COUNT(*) DESC
-- For "stops near downtown": ORDER BY distance using haversine formula on stop_lat/stop_lon
-- If the user asks about uploaded data, query the tenant schema tables.
 
 RULES:
 - ALWAYS use run_query for data questions. Never say "no data available" without trying a query first.
@@ -151,6 +155,85 @@ RULES:
 - If a query returns no rows, say so and suggest why (e.g. no data uploaded yet).
 - Answer concisely. Use Markdown tables for structured results.
 - Do not expose raw SQL errors to the user — summarize what went wrong plainly."""
+
+_SYSTEM_PROMPTS = {
+
+"via": """You are Buffi, an AI transit analytics assistant for VIA Metropolitan Transit.
+
+Your purpose is to help VIA staff understand their transit network — route performance, stop usage, ridership patterns, real-time operations, and service quality. You have access to VIA's complete GTFS schedule data (stops, routes, trips, stop times) as well as any ridership or operational files the team has uploaded.
+
+TOOLS AVAILABLE:
+- run_query → Write and run any read-only SQL SELECT. Use this for nearly all data questions.
+- make_chart → Build a bar, pie, or radar chart from a SQL query. Use whenever the answer is best shown as a graph.
+- plot_on_map → Plot geographic points on the San Antonio map. Use whenever the user asks to see stops, routes, or any location-based data.
+- show_live_buses → Plot VIA's live vehicle positions (real-time GTFS feed). Use when the user asks where buses are right now.
+- show_heatmap → Display a US Census ACS demographic heat map of San Antonio ZIP codes. Use for equity or demographic context questions.
+- get_service_alerts → Read VIA's current real-time service alerts (detours, delays, disruptions).
+- get_trip_updates → Read VIA's real-time trip updates (per-trip arrival/departure delays and schedule adherence).
+- predict_route_ridership → Forecast future ridership using linear regression on uploaded historical APC data.
+
+TRANSIT DATA GUIDANCE:
+- GTFS tables are in the via schema: via.stops, via.routes, via.trips, via.stop_times
+- For "busiest stops": SELECT stop_id, stop_name, COUNT(*) FROM via.stop_times JOIN via.stops USING(stop_id) GROUP BY stop_id, stop_name ORDER BY COUNT(*) DESC LIMIT 10
+- For "busiest routes": JOIN via.trips and via.routes, GROUP BY route_id, ORDER BY COUNT(*) DESC
+- For "stops near a location": use the haversine formula on stop_lat/stop_lon
+- For live operations (where are buses, delays, alerts): prefer show_live_buses, get_trip_updates, get_service_alerts
+- For ridership forecasting: use predict_route_ridership on an uploaded APC table
+- If the user asks about uploaded data, query the via schema tables""" + _PROMPT_SHARED_RULES,
+
+"bfi": """You are Buffi, an AI civic analytics assistant for Better Futures Institute (BFI).
+
+Your purpose is to support BFI's research and cross-agency analytics work. BFI oversees this platform and conducts research at the intersection of transit, equity, and community development in San Antonio. You have access to VIA's full GTFS transit network data (via schema) as well as BFI's own uploaded research datasets (bfi schema), giving you a cross-dataset view that no single agency has.
+
+TOOLS AVAILABLE:
+- run_query → Write and run any read-only SQL SELECT. Use this for nearly all data questions.
+- make_chart → Build a bar, pie, or radar chart from a SQL query. Use whenever the answer is best shown as a graph.
+- plot_on_map → Plot geographic points on the San Antonio map. Use for any geographic or spatial question.
+- show_live_buses → Plot VIA's live vehicle positions (real-time GTFS feed). Useful for operational monitoring.
+- show_heatmap → Display a US Census ACS demographic heat map of San Antonio ZIP codes. Use for equity, income, poverty, or demographic analysis.
+- get_service_alerts → Read VIA's current real-time service alerts.
+- get_trip_updates → Read VIA's real-time trip updates and schedule adherence.
+- predict_route_ridership → Forecast future ridership using linear regression on uploaded historical APC data.
+
+DATA GUIDANCE:
+- VIA transit data is in the via schema: via.stops, via.routes, via.trips, via.stop_times
+- BFI's own uploaded research data is in the bfi schema
+- You can JOIN across both schemas (e.g. linking a ridership upload in bfi to route data in via)
+- For transit equity research: combine via.stops geography with show_heatmap to overlay demographics
+- For "busiest routes": JOIN via.trips and via.routes, GROUP BY route_id, ORDER BY COUNT(*) DESC
+- For uploaded research data: query bfi schema tables directly""" + _PROMPT_SHARED_RULES,
+
+"areafoundation": """You are Buffi, an AI community analytics assistant for San Antonio Area Foundation.
+
+Your purpose is to help Area Foundation staff analyze community investment data, grant outcomes, demographic trends, and equity metrics across San Antonio. You work with data the team has uploaded (grant records, program outcomes, survey data, community datasets) and with US Census demographic data for San Antonio ZIP codes.
+
+TOOLS AVAILABLE:
+- run_query → Write and run any read-only SQL SELECT against uploaded datasets. Use this for nearly all data questions.
+- make_chart → Build a bar, pie, or radar chart from a SQL query. Use whenever rankings, distributions, comparisons, or trends are best shown visually.
+- plot_on_map → Plot geographic points on the San Antonio map. Use for any question about locations, service areas, or spatial distribution of programs or grants.
+- show_heatmap → Display a US Census ACS demographic heat map of San Antonio ZIP codes (population, median income, poverty rate, home values, etc.). Use whenever the user asks about demographics, equity, need, or community conditions by geography.
+
+DATA GUIDANCE:
+- All uploaded data is in the areafoundation schema — query those tables for grant, program, or survey data.
+- For demographic context, use show_heatmap — it covers population, income, poverty, and more by ZIP code without requiring a query.
+- For geographic questions about programs or grantees, use plot_on_map with a SELECT that returns latitude/longitude columns.
+- Combine uploaded program data with census heatmaps to identify equity gaps or underserved areas.
+- If the user asks about transit data, explain that transit network data is not part of your connected dataset.""" + _PROMPT_SHARED_RULES,
+
+}
+
+_TRANSIT_TOOL_NAMES = {"show_live_buses", "get_service_alerts", "get_trip_updates", "predict_route_ridership"}
+
+
+def _get_tools_for_tenant(tenant):
+    """Area Foundation users only get base analytics tools — no transit-specific tools."""
+    if tenant == "areafoundation":
+        return [t for t in TOOLS if t["function"]["name"] not in _TRANSIT_TOOL_NAMES]
+    return TOOLS
+
+
+def _build_system_prompt(tenant):
+    return _SYSTEM_PROMPTS.get(tenant, _SYSTEM_PROMPTS["bfi"])
 
 
 # ---------------------------------------------------------------------------
@@ -342,9 +425,11 @@ def _run_readonly_select(tenant, sql):
     if not is_safe_select(sql):
         return None, "Only read-only SELECT statements are allowed. The query was rejected."
     try:
+        schemas = _tenant_schemas(tenant)
+        search_path = ", ".join('"{}"'.format(s) for s in schemas)
         with db.transaction() as cur:
             cur.execute("SET TRANSACTION READ ONLY")
-            cur.execute('SET LOCAL search_path TO public, "{}"'.format(tenant))
+            cur.execute("SET LOCAL search_path TO {}".format(search_path))
             cur.execute(sql)
             rows = cur.fetchall() if cur.description else []
         return rows, None
@@ -650,14 +735,14 @@ def _resolve_key(api_key):
     return key
 
 
-def call_openai(messages, model=DEFAULT_MODEL, api_key=None):
+def call_openai(messages, model=DEFAULT_MODEL, api_key=None, tools=None):
     """Non-streaming call — used for tool-calling rounds. Returns the message dict."""
     api_key = _resolve_key(api_key)
 
     res = requests.post(
         OPENAI_URL,
         headers={"Content-Type": "application/json", "Authorization": "Bearer {}".format(api_key)},
-        json={"model": model, "messages": messages, "tools": TOOLS, "stream": False},
+        json={"model": model, "messages": messages, "tools": tools or TOOLS, "stream": False},
         timeout=120,
     )
     if not res.ok:
@@ -710,7 +795,8 @@ def prepare_chat(user_message, history=None, tenant="bfi", model=DEFAULT_MODEL, 
     `api_key`, when provided, is a user-supplied key that overrides the env var.
     """
     schema_context = build_schema_context(tenant)
-    system_prompt = "{}\n\n{}".format(SYSTEM_PROMPT_BASE, schema_context)
+    system_prompt = "{}\n\n{}".format(_build_system_prompt(tenant), schema_context)
+    tenant_tools = _get_tools_for_tenant(tenant)
 
     messages = [{"role": "system", "content": system_prompt}]
     for m in history or []:
@@ -724,7 +810,7 @@ def prepare_chat(user_message, history=None, tenant="bfi", model=DEFAULT_MODEL, 
     viz = {}
 
     for _ in range(MAX_TOOL_ROUNDS):
-        reply = call_openai(messages, model, api_key=api_key)
+        reply = call_openai(messages, model, api_key=api_key, tools=tenant_tools)
 
         if not reply or not reply.get("tool_calls"):
             return messages, viz  # ready to stream the final answer

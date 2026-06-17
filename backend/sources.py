@@ -19,6 +19,7 @@ import db
 SAFE_SCHEMA = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 BATCH_SIZE = 5000
+TENANT_SCHEMAS = ["bfi", "via", "areafoundation"]
 
 
 def _tenant():
@@ -34,44 +35,47 @@ def _sanitize_column_name(name, idx):
 
 
 def init_sources_meta():
-    """Ensure the metadata table exists with all context/RBAC columns (idempotent)."""
-    try:
-        db.query(
-            """
-            CREATE TABLE IF NOT EXISTS bfi.sources_meta (
-                id SERIAL PRIMARY KEY,
-                name VARCHAR(255) NOT NULL,
-                table_name VARCHAR(255) UNIQUE NOT NULL,
-                status VARCHAR(50) DEFAULT 'Ready',
-                size BIGINT,
-                num_rows INT,
-                columns JSONB,
-                uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-            """
-        )
-        db.query(
-            """
-            ALTER TABLE bfi.sources_meta
-                ADD COLUMN IF NOT EXISTS user_id         INTEGER REFERENCES users(id) ON DELETE SET NULL,
-                ADD COLUMN IF NOT EXISTS visibility      VARCHAR(20) DEFAULT 'private',
-                ADD COLUMN IF NOT EXISTS project_name    VARCHAR(255),
-                ADD COLUMN IF NOT EXISTS description     TEXT,
-                ADD COLUMN IF NOT EXISTS data_domain     VARCHAR(100),
-                ADD COLUMN IF NOT EXISTS coverage_start  DATE,
-                ADD COLUMN IF NOT EXISTS coverage_end    DATE,
-                ADD COLUMN IF NOT EXISTS ongoing         BOOLEAN DEFAULT FALSE,
-                ADD COLUMN IF NOT EXISTS agency_response VARCHAR(50);
-            """
-        )
-        db.query(
-            """
-            CREATE INDEX IF NOT EXISTS idx_sources_meta_user       ON bfi.sources_meta(user_id);
-            CREATE INDEX IF NOT EXISTS idx_sources_meta_visibility ON bfi.sources_meta(visibility);
-            """
-        )
-    except Exception as e:
-        print("Failed to initialise sources_meta table:", e)
+    """Ensure the sources_meta table exists in every tenant schema (idempotent)."""
+    for schema in TENANT_SCHEMAS:
+        safe = schema[:2]  # short prefix for index names (bfi→bf, via→vi, areafoundation→ar)
+        try:
+            db.query("CREATE SCHEMA IF NOT EXISTS {};".format(schema))
+            db.query(
+                """
+                CREATE TABLE IF NOT EXISTS {schema}.sources_meta (
+                    id SERIAL PRIMARY KEY,
+                    name VARCHAR(255) NOT NULL,
+                    table_name VARCHAR(255) UNIQUE NOT NULL,
+                    status VARCHAR(50) DEFAULT 'Ready',
+                    size BIGINT,
+                    num_rows INT,
+                    columns JSONB,
+                    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                """.format(schema=schema)
+            )
+            db.query(
+                """
+                ALTER TABLE {schema}.sources_meta
+                    ADD COLUMN IF NOT EXISTS user_id         INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                    ADD COLUMN IF NOT EXISTS visibility      VARCHAR(20) DEFAULT 'private',
+                    ADD COLUMN IF NOT EXISTS project_name    VARCHAR(255),
+                    ADD COLUMN IF NOT EXISTS description     TEXT,
+                    ADD COLUMN IF NOT EXISTS data_domain     VARCHAR(100),
+                    ADD COLUMN IF NOT EXISTS coverage_start  DATE,
+                    ADD COLUMN IF NOT EXISTS coverage_end    DATE,
+                    ADD COLUMN IF NOT EXISTS ongoing         BOOLEAN DEFAULT FALSE,
+                    ADD COLUMN IF NOT EXISTS agency_response VARCHAR(50);
+                """.format(schema=schema)
+            )
+            db.query(
+                """
+                CREATE INDEX IF NOT EXISTS idx_{safe}_sm_user ON {schema}.sources_meta(user_id);
+                CREATE INDEX IF NOT EXISTS idx_{safe}_sm_vis  ON {schema}.sources_meta(visibility);
+                """.format(schema=schema, safe=safe)
+            )
+        except Exception as e:
+            print("Failed to initialise {}.sources_meta table: {}".format(schema, e))
 
 
 def create_sources_blueprint(require_admin, require_editor=None, require_analyzer=None, require_viewer=None):
@@ -126,7 +130,7 @@ def create_sources_blueprint(require_admin, require_editor=None, require_analyze
         try:
             with db.transaction() as cur:
                 # M-1: advisory lock serialises concurrent uploads of the same filename.
-                cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("bfi.{}".format(table_name),))
+                cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("{}.{}".format(tenant, table_name),))
 
                 # 1. Drop existing table if it exists
                 cur.execute('DROP TABLE IF EXISTS {}."{}";'.format(tenant, table_name))
@@ -154,7 +158,7 @@ def create_sources_blueprint(require_admin, require_editor=None, require_analyze
                 # 4. Save metadata in the same transaction - track owner and visibility
                 cur.execute(
                     """
-                    INSERT INTO bfi.sources_meta (name, table_name, size, num_rows, columns, user_id, visibility)
+                    INSERT INTO {tenant}.sources_meta (name, table_name, size, num_rows, columns, user_id, visibility)
                     VALUES (%s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (table_name) DO UPDATE
                         SET name        = EXCLUDED.name,
@@ -165,7 +169,7 @@ def create_sources_blueprint(require_admin, require_editor=None, require_analyze
                             visibility  = EXCLUDED.visibility,
                             uploaded_at = CURRENT_TIMESTAMP
                     RETURNING id;
-                    """,
+                    """.format(tenant=tenant),
                     (file.filename, table_name, size, len(rows), json.dumps(columns), (g.user or {}).get("id"), visibility),
                 )
                 new_id = cur.fetchone()["id"]

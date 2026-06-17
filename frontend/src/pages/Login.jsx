@@ -30,7 +30,7 @@ const Login = () => {
 
             // securely save the token and auto-redirect to dashboard
             //
-            login(data.username, data.role);
+            login(data.username, data.role, data.tenant);
             navigate('/dashboard');
         } catch (err) {
             setError(err.message);

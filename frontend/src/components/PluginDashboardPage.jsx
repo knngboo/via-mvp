@@ -3,12 +3,22 @@ import { useNavigate } from 'react-router-dom';
 import AppSidebar from './AppSidebar';
 import { getActivePlugin } from 'Plugins';
 import { useCsv } from '../context/CsvContext';
+import { useAuth } from '../context/AuthContext';
 import bfiIcon from '../assets/images/BFI_LogoIcon.svg';
+import viaLogo from '../assets/images/Via.png';
+import afLogo from '../assets/images/OIP.webp';
 import apiService from '../services/api';
 import '../App.css';
 
+const TENANT_LOGOS = {
+    via: { src: viaLogo, alt: 'VIA Metropolitan Transit' },
+    areafoundation: { src: afLogo, alt: 'San Antonio Area Foundation' },
+};
+
 export default function PluginDashboardPage() {
     const navigate = useNavigate();
+    const { user } = useAuth();
+    const tenantLogo = TENANT_LOGOS[user?.tenant];
     const [plugin, setPlugin] = useState(getActivePlugin);
     const [stats, setStats] = useState(null);
 
@@ -60,7 +70,14 @@ export default function PluginDashboardPage() {
             <div className="col-chat">
                 <div className="col-header col-header--chat" style={{ justifyContent: 'space-between' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <img src={bfiIcon} alt="Buffi" className="chat-header-logo" />
+                        {tenantLogo ? (
+                            <span className="top-bar-tenant-logo-wrap">
+                                <img src={tenantLogo.src} alt={tenantLogo.alt} className="top-bar-tenant-logo" />
+                                <span className="top-bar-powered-by">Powered by BFI</span>
+                            </span>
+                        ) : (
+                            <img src={bfiIcon} alt="Buffi" className="chat-header-logo" />
+                        )}
                         <span className="top-bar-brand">{plugin.name} Dashboard</span>
                     </div>
                     {stats && (

@@ -59,6 +59,11 @@ if len(ADMIN_SECRET) < 8:
 
 SAFE_SCHEMA = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 
+# Mapping from registration org label to DB schema name.
+# BFI (superadmin) can assign users to any of these.
+ORG_TO_SCHEMA = {"bfi": "bfi", "via": "via", "areafoundation": "areafoundation"}
+VALID_TENANT_SCHEMAS = set(ORG_TO_SCHEMA.values())
+
 # A static dummy hash compared when the username doesn't exist, so login response
 # time is identical whether the username is valid or not (prevents enumeration).
 DUMMY_HASH = b"$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
@@ -240,6 +245,7 @@ def register():
     body = request.get_json(silent=True) or {}
     username = body.get("username")
     password = body.get("password")
+    organization = str(body.get("organization", "bfi")).lower()
 
     if not username or not isinstance(username, str) or not (1 <= len(username) <= 50):
         return jsonify({"error": "Username must be between 1 and 50 characters."}), 400
@@ -250,15 +256,19 @@ def register():
     if isinstance(password, str) and len(password) < 8:
         return jsonify({"error": "Password must be at least 8 characters."}), 400
 
+    tenant_schema = ORG_TO_SCHEMA.get(organization)
+    if not tenant_schema:
+        return jsonify({"error": "Invalid organization. Must be one of: bfi, via, areafoundation"}), 400
+
     try:
         hashed = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(10)).decode("utf-8")
         rows = db.query(
             """
-            INSERT INTO users (username, password_hash, user_role)
-            VALUES (%s, %s, 'admin')
-            RETURNING id, username
+            INSERT INTO users (username, password_hash, user_role, tenant_schema)
+            VALUES (%s, %s, 'admin', %s)
+            RETURNING id, username, tenant_schema
             """,
-            (username, hashed),
+            (username, hashed, tenant_schema),
         )
         return jsonify(rows[0]), 201
     except Exception as error:
@@ -308,7 +318,11 @@ def login():
         # Ensure the transit database is loaded now that a user is logged in.
         _ensure_db_loaded_async()
 
-        resp = jsonify({"username": user["username"], "role": user["user_role"]})
+        resp = jsonify({
+            "username": user["username"],
+            "role": user["user_role"],
+            "tenant": user["tenant_schema"] or "bfi",
+        })
         _set_session_cookie(resp, token)
         return resp
     except Exception as error:
@@ -330,7 +344,7 @@ def logout():
 def me():
     try:
         rows = db.query(
-            "SELECT id, username, user_role FROM users WHERE id = %s",
+            "SELECT id, username, user_role, tenant_schema FROM users WHERE id = %s",
             (g.user["id"],),
         )
         if not rows:
@@ -342,7 +356,11 @@ def me():
         _ensure_db_loaded_async()
 
         u = rows[0]
-        return jsonify({"username": u["username"], "role": u["user_role"]})
+        return jsonify({
+            "username": u["username"],
+            "role": u["user_role"],
+            "tenant": u["tenant_schema"] or "bfi",
+        })
     except Exception as error:
         logger.error("/api/me db check failed: %s", error)
         return jsonify({"error": "Session verification failed."}), 500
@@ -536,15 +554,23 @@ def plugins():
 @authenticate_token
 @require_admin
 def list_users():
+    caller_tenant = _safe_tenant(g.user)
     try:
-        rows = db.query(
-            "SELECT id, username, user_role, created_at FROM users ORDER BY created_at DESC"
-        )
+        if caller_tenant == "bfi":
+            rows = db.query(
+                "SELECT id, username, user_role, tenant_schema, created_at FROM users ORDER BY created_at DESC"
+            )
+        else:
+            rows = db.query(
+                "SELECT id, username, user_role, tenant_schema, created_at FROM users WHERE tenant_schema = %s ORDER BY created_at DESC",
+                (caller_tenant,),
+            )
         return jsonify([
             {
                 "id": r["id"],
                 "username": r["username"],
                 "user_role": r["user_role"],
+                "tenant_schema": r["tenant_schema"] or "bfi",
                 "created_at": r["created_at"].isoformat() if r["created_at"] else None,
             }
             for r in rows
@@ -561,6 +587,7 @@ def update_user_role(user_id):
     VALID_ROLES = ["admin", "editor", "analyzer", "viewer"]
     body = request.get_json(silent=True) or {}
     role = body.get("role")
+    caller_tenant = _safe_tenant(g.user)
 
     if not role or role not in VALID_ROLES:
         return jsonify({"error": "Invalid role. Must be one of: {}".format(", ".join(VALID_ROLES))}), 400
@@ -570,6 +597,12 @@ def update_user_role(user_id):
         return jsonify({"error": "Cannot demote yourself from admin role."}), 403
 
     try:
+        # Non-BFI admins can only change roles of users in their own tenant.
+        if caller_tenant != "bfi":
+            target = db.query("SELECT tenant_schema FROM users WHERE id = %s", (user_id,))
+            if not target or target[0]["tenant_schema"] != caller_tenant:
+                return jsonify({"error": "User not found or outside your tenant."}), 404
+
         rows = db.query(
             "UPDATE users SET user_role = %s WHERE id = %s RETURNING id, username, user_role",
             (role, user_id),
@@ -581,6 +614,73 @@ def update_user_role(user_id):
     except Exception as error:
         logger.error("role update failed: %s", error)
         return jsonify({"error": "Failed to update role."}), 500
+
+
+@app.route("/api/admin/users/<int:user_id>/tenant", methods=["PATCH"])
+@authenticate_token
+@require_admin
+def update_user_tenant(user_id):
+    body = request.get_json(silent=True) or {}
+    new_tenant = body.get("tenant_schema")
+    caller_tenant = _safe_tenant(g.user)
+
+    if not new_tenant or new_tenant not in VALID_TENANT_SCHEMAS:
+        return jsonify({"error": "Invalid tenant_schema. Must be one of: {}".format(", ".join(sorted(VALID_TENANT_SCHEMAS)))}), 400
+
+    if user_id == g.user["id"]:
+        return jsonify({"error": "Cannot change your own organization."}), 403
+
+    # Non-BFI admins can only assign users to their own tenant.
+    if caller_tenant != "bfi" and new_tenant != caller_tenant:
+        return jsonify({"error": "You can only assign users to your own organization."}), 403
+
+    try:
+        # Non-BFI admins can only modify users within their own tenant.
+        if caller_tenant != "bfi":
+            target = db.query("SELECT tenant_schema FROM users WHERE id = %s", (user_id,))
+            if not target or target[0]["tenant_schema"] != caller_tenant:
+                return jsonify({"error": "User not found or outside your tenant."}), 404
+
+        rows = db.query(
+            "UPDATE users SET tenant_schema = %s WHERE id = %s RETURNING id, username, tenant_schema",
+            (new_tenant, user_id),
+        )
+        if not rows:
+            return jsonify({"error": "User not found."}), 404
+        logger.info("User %s tenant updated to %s by admin %s", user_id, new_tenant, g.user["id"])
+        return jsonify(dict(rows[0]))
+    except Exception as error:
+        logger.error("tenant update failed: %s", error)
+        return jsonify({"error": "Failed to update organization."}), 500
+
+
+@app.route("/api/admin/users/<int:user_id>", methods=["DELETE"])
+@authenticate_token
+@require_admin
+def delete_user(user_id):
+    caller_tenant = _safe_tenant(g.user)
+
+    if user_id == g.user["id"]:
+        return jsonify({"error": "Cannot delete your own account."}), 403
+
+    try:
+        # Non-BFI admins can only delete users in their own tenant.
+        if caller_tenant != "bfi":
+            target = db.query("SELECT tenant_schema FROM users WHERE id = %s", (user_id,))
+            if not target or target[0]["tenant_schema"] != caller_tenant:
+                return jsonify({"error": "User not found or outside your tenant."}), 404
+
+        rows = db.query(
+            "DELETE FROM users WHERE id = %s RETURNING id, username",
+            (user_id,),
+        )
+        if not rows:
+            return jsonify({"error": "User not found."}), 404
+        logger.info("User %s (%s) deleted by admin %s", user_id, rows[0]["username"], g.user["id"])
+        return jsonify({"deleted": True, "id": rows[0]["id"], "username": rows[0]["username"]})
+    except Exception as error:
+        logger.error("user delete failed: %s", error)
+        return jsonify({"error": "Failed to delete user."}), 500
 
 # ── Blueprints (authenticated) ──────────────────────────────────────────────
 sources_bp = create_sources_blueprint(require_admin, require_editor, require_analyzer, require_viewer)
